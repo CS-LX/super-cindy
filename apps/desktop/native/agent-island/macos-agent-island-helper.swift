@@ -832,9 +832,10 @@ enum AgentIslandMascotCatalog {
     "erika",
   ]
 
-  /// PNG 贴图角色的渲染参数；返回 nil 表示该皮肤走矢量绘制(pululu)。
+  /// Preserve saved skin IDs while using the meme originals, including the egg for pululu.
   static func spriteConfig(for skin: String) -> SpriteMascotConfig? {
     switch skin {
+    case "pululu": return .boli
     case "tarara": return .tarara
     case "boli": return .boli
     case "whitesnow": return .whitesnow
@@ -976,8 +977,9 @@ struct SpriteMascotView: View {
         Path(ellipseIn: v.ellipse(cx: 8 + x, cy: 8.1, rx: 5.8, ry: 5.8, dy: dy)),
         with: .color(config.fallbackColor)
       )
+      drawEyes(sprite, v: v, dy: dy + eyeYOffset, x: x, scale: eyeScale, opacity: eyeOpacity)
     }
-    drawEyes(sprite, v: v, dy: dy + eyeYOffset, x: x, scale: eyeScale, opacity: eyeOpacity)
+    // Original meme faces include their eyes; only the missing-image fallback draws them.
   }
 
   private func drawEyes(

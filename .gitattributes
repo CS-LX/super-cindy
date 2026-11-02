@@ -1,4 +1,10 @@
 *.sh text eol=lf
+# Keep the generated installer PDF byte-exact on Windows.
+apps/desktop/resources/dmg/background.pdf binary
+# Generated meme payload hashes are verified byte-for-byte across platforms.
+apps/desktop/src/renderer/assets/agent-island-pululu.svg text eol=lf
+apps/mobile/assets/bot-presets/portrait-gallery.json text eol=lf
+apps/mobile/plugins/usage-widgets/Assets.xcassets/logo-cindy.imageset/logo-cindy.svg text eol=lf
 # Raw-imported plugin authoring chapters retain FORGE_GUIDE's LF bytes on Windows.
 apps/desktop/resources/system-skills/cindy-plugin-creator/references/*.md text eol=lf
 # The page generation manual is published by version and content hash (mcp-apps/manual/<version>/<sha256>.md);

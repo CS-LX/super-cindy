@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  getBuiltinWallpaperBackground,
+  isCdnWallpaper,
+  isSceneWallpaper,
+} from '../../renderer/lib/wallpaper';
+import {
   normalizeAppearanceSettings,
   getWallpaperVeil,
   clampAppearanceWallpaperOverlay,
@@ -7,6 +12,19 @@ import {
 } from '../appearanceSettings';
 
 describe('wallpaper catalog compatibility', () => {
+  // Fork owner's 2026-11-02 rebrand: replacing a thumbnail alone still downloaded
+  // the old girl artwork. Unit tier; exercise the actual wallpaper selection path
+  // for saved IDs while leaving unrelated upstream scenery available through CDN.
+  it('resolves saved character wallpaper IDs to bundled original memes without CDN or video', () => {
+    for (const wallpaperId of ['cindy-whisper', 'cindy-neon', 'cindy-window'] as const) {
+      const settings = normalizeAppearanceSettings({ wallpaperId });
+      expect(settings.wallpaperId).toBe(wallpaperId);
+      expect(getBuiltinWallpaperBackground(wallpaperId)).toMatch(/^url\(".+"\)$/);
+      expect(isCdnWallpaper(wallpaperId)).toBe(false);
+      expect(isSceneWallpaper(wallpaperId)).toBe(false);
+    }
+    expect(isCdnWallpaper('night-launch')).toBe(true);
+  });
   it.each([false, true])(
     'preserves legacy visuals but gives explicit visibility the full range (dark=%s)',
     (dark) => {

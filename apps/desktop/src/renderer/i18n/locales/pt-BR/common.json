@@ -2222,14 +2222,14 @@
         "nonePreview": "Nenhum",
         "options": {
           "none": "Nenhum",
-          "cindy-window": "Cindy · Companhia na janela",
-          "cindy-studio": "Cindy · Ateliê do futuro",
-          "cindy-dream": "Cindy · Viagem dos sonhos",
-          "cindy-whisper": "Cindy · Sussurro",
-          "cindy-night-glance": "Cindy · Olhar noturno",
-          "cindy-scarlet-stroll": "Cindy · Passeio escarlate",
-          "cindy-neon": "Cindy · Silhueta neon",
-          "cindy-prism": "Cindy · Fragmentos de prisma",
+          "cindy-window": "Naiwa · Peek",
+          "cindy-studio": "Naiwa · Think",
+          "cindy-dream": "Naidan · Andi",
+          "cindy-whisper": "Naiwa · Laugh",
+          "cindy-night-glance": "Naicha",
+          "cindy-scarlet-stroll": "Naiwa · Stance",
+          "cindy-neon": "Naishu",
+          "cindy-prism": "Naiji",
           "night-launch": "Lançamento noturno",
           "silent-orbits": "Órbitas silenciosas",
           "dune-dawn": "Amanhecer nas dunas",
@@ -2392,44 +2392,44 @@
       "skinAnimationAria": "Alternar prévia da animação de {{skin}}",
       "skins": {
         "cindy": {
-          "name": "Cindy",
-          "description": "A própria Cindy, de olho em cada execução."
+          "name": "Naiwa · Laugh",
+          "description": "Imagem original do meme, com rosto e olhos preservados."
         },
         "blackcat": {
-          "name": "Black Cat",
-          "description": "Um gato preto sereno cujos olhos amarelos se destacam no recorte escuro."
+          "name": "Naigou",
+          "description": "Imagem original do meme, com rosto e olhos preservados."
         },
         "pululu": {
-          "name": "Pululu",
-          "description": "O pequeno guardião tranquilo da TapFamily: de cabeça redonda, sincero e pronto para organizar tarefas confusas."
+          "name": "Naidan",
+          "description": "Imagem original do meme, com rosto e olhos preservados."
         },
         "tarara": {
-          "name": "Tarara",
-          "description": "O explorador incansável da TapFamily, curioso o bastante para levar sua tarefa a territórios desconhecidos."
+          "name": "Nailong",
+          "description": "Imagem original do meme, com rosto e olhos preservados."
         },
         "boli": {
-          "name": "Boli",
-          "description": "Um companheiro Boli rosa com um leve saltitar e uma silhueta simples para dar um clima mais suave à ilha."
+          "name": "Naidan · Andi",
+          "description": "Imagem original do meme, com rosto e olhos preservados."
         },
         "whitesnow": {
-          "name": "Apple Girl",
-          "description": "A lutadora colegial com cabeça de maçã de Flash Party, trazendo energia de sobra para as tarefas em execução."
+          "name": "Naiji",
+          "description": "Imagem original do meme, com rosto e olhos preservados."
         },
         "annie": {
-          "name": "Annie",
-          "description": "A acolhedora guia da cidade de Heartopia, que torna até os alertas de tarefas concluídas um pouco mais gentis."
+          "name": "Naiwa · Peek",
+          "description": "Imagem original do meme, com rosto e olhos preservados."
         },
         "chaku": {
-          "name": "Chaku",
-          "description": "O companheiro de olhos vivos de Iser, atento aos momentos em que uma tarefa precisa da sua atenção."
+          "name": "Naiwa · Think",
+          "description": "Imagem original do meme, com rosto e olhos preservados."
         },
         "muffin": {
-          "name": "Muffin",
-          "description": "Um companheiro azul-acinzentado e fofinho que deixa as tarefas em execução mais leves e divertidas."
+          "name": "Naicha",
+          "description": "Imagem original do meme, com rosto e olhos preservados."
         },
         "erika": {
-          "name": "Erika",
-          "description": "Erika com sua presilha de lua crescente — olhos castanhos acolhedores, concentrada em silêncio nas execuções longas."
+          "name": "Naishu",
+          "description": "Imagem original do meme, com rosto e olhos preservados."
         }
       },
       "soundEvents": {

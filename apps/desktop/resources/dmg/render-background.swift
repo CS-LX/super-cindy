@@ -1,4 +1,5 @@
-// DMG 安装窗口背景生成器(background.pdf 的唯一来源,改视觉先改这里再重新生成)。
+// macOS DMG background helper. This fork also rebuilds background.pdf portably
+// with scripts/meme-assets/rebuild.py, using the same replaced splash artwork.
 //
 // 再生成:在本目录(apps/desktop/resources/dmg)下执行
 //   swift render-background.swift

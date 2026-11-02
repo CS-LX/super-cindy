@@ -1,0 +1,502 @@
+{
+  "apps/desktop/resources/companion-preset-avatars/cindy.png": {
+    "source": "naiwa-laugh",
+    "sha256": "7dc96fa2b4d1700715ffd7843b609da32566c86a7c90a769014d35cfd3d053f2"
+  },
+  "apps/desktop/src/renderer/assets/bot-presets/cindy.png": {
+    "source": "naiwa-laugh",
+    "sha256": "7dc96fa2b4d1700715ffd7843b609da32566c86a7c90a769014d35cfd3d053f2"
+  },
+  "apps/mobile/assets/bot-presets/cindy.png": {
+    "source": "naiwa-laugh",
+    "sha256": "7dc96fa2b4d1700715ffd7843b609da32566c86a7c90a769014d35cfd3d053f2"
+  },
+  "apps/desktop/resources/legacy-teammate-avatars/dash.png": {
+    "source": "naidan",
+    "sha256": "4cadb05c9f3cce567069b58935d8bd57fd5b1e58ad7d52cdda2d8a0266422340"
+  },
+  "apps/mobile/assets/bot-presets/dash.png": {
+    "source": "naidan",
+    "sha256": "4cadb05c9f3cce567069b58935d8bd57fd5b1e58ad7d52cdda2d8a0266422340"
+  },
+  "apps/desktop/resources/legacy-teammate-avatars/lizi.png": {
+    "source": "nailong",
+    "sha256": "610aa962d73d63eea7cf4e0acb9d8921f825371cfa3578518ddea296c0c7e754"
+  },
+  "apps/mobile/assets/bot-presets/lizi.png": {
+    "source": "nailong",
+    "sha256": "610aa962d73d63eea7cf4e0acb9d8921f825371cfa3578518ddea296c0c7e754"
+  },
+  "apps/desktop/src/renderer/assets/cindy-avatar-account.png": {
+    "source": "naiwa-laugh",
+    "sha256": "a6af1a4232e0561666ab88f27cdea8a37f2bb7d2b711f04e4fa9342946e3a972"
+  },
+  "apps/desktop/src/renderer/assets/cindy-avatar-lockup.png": {
+    "source": "naiwa-laugh",
+    "sha256": "b29f80b73ffd119040da018cba3085acee9c310002715cda229a958cfd5763fb"
+  },
+  "apps/desktop/src/renderer/assets/head-image-dark.png": {
+    "source": "naiwa-laugh",
+    "sha256": "8b0efd827fe8144bdc6c9104f01fffef1465fce2731a6bc6834c9adf3684e1c3"
+  },
+  "apps/desktop/src/renderer/assets/head-image-light.png": {
+    "source": "naiwa-laugh",
+    "sha256": "8b0efd827fe8144bdc6c9104f01fffef1465fce2731a6bc6834c9adf3684e1c3"
+  },
+  "apps/desktop/src/renderer/assets/cindy-share-character.jpg": {
+    "source": "naiwa-stance",
+    "sha256": "6c0757f0558c66ea383b626078f2c77d41e4a1a016d881777bf8e51265b4f0d7"
+  },
+  "apps/mobile/assets/share/cindy-share-character.jpg": {
+    "source": "naiwa-stance",
+    "sha256": "6c0757f0558c66ea383b626078f2c77d41e4a1a016d881777bf8e51265b4f0d7"
+  },
+  "apps/desktop/resources/teammate-portrait-gallery.png": {
+    "source": "naiwa-standing, naidan, naiwa-laugh, naiwa-thinking, naiwa-peeking, naiwa-surprised, naiwa-crawling, naiwa-stance, nailong, naigou, naiji, naicha, naishu, naicai, nainiu, naiwa-belly-laugh",
+    "sha256": "bbf6d9f8fce5dcf5eaca66909ff6d534a9728465cc43a0bcf764f1626f1791bd"
+  },
+  "apps/mobile/assets/bot-presets/portrait-gallery.json": {
+    "source": "naiwa-standing, naidan, naiwa-laugh, naiwa-thinking, naiwa-peeking, naiwa-surprised, naiwa-crawling, naiwa-stance, nailong, naigou, naiji, naicha, naishu, naicai, nainiu, naiwa-belly-laugh",
+    "sha256": "f4726acc197be39bb066b213961e80f9784ecbebf8f1239bcc24fd418d9a49e3"
+  },
+  "apps/desktop/resources/bot-packages/ad-spend-watch/0.5.2/assets/avatar.webp": {
+    "source": "naiwa-standing",
+    "sha256": "219fbef15ca8269da4048821bed8b8d12f11ed8925e10520c3dfeedd5fa20362"
+  },
+  "apps/desktop/resources/bot-packages/apple-search-ads-review/0.5.2/assets/avatar.webp": {
+    "source": "naidan",
+    "sha256": "3a1eae345ec74b91156872dda043b7af024f2263f54069a3d5269cc80169bb3d"
+  },
+  "apps/desktop/resources/bot-packages/cooper/0.5.2/assets/avatar.webp": {
+    "source": "naiwa-laugh",
+    "sha256": "8aa1211ad831e46d25aa53c3a98191843d0b86a91b692825f4b4ff203cc62e64"
+  },
+  "apps/desktop/resources/bot-packages/engineer-bot/0.5.2/assets/avatar.webp": {
+    "source": "naiwa-thinking",
+    "sha256": "e12f69a693bf93960628681e448516a9ca568356cc407426d63354528aa987df"
+  },
+  "apps/desktop/resources/bot-packages/nightly-audit-engineer/0.5.2/assets/avatar.webp": {
+    "source": "naiwa-peeking",
+    "sha256": "5487e63842c2b442ada1a4a26e9bf31cc81542688e1f073b0ff02ade6d367841"
+  },
+  "apps/desktop/resources/bot-packages/proto-bot/0.5.2/assets/avatar.webp": {
+    "source": "naiwa-surprised",
+    "sha256": "d0ef1ca6046448b9fb8c435c5f510c947b222e8fc9db3b63dd265cdd1dd7c641"
+  },
+  "apps/desktop/resources/bot-packages/sable-game-art/0.5.2/assets/avatar.webp": {
+    "source": "naiwa-crawling",
+    "sha256": "e93fa987df78e10eaf8b85beca394300ae14a80440dc5bc7d11343af9eff5e5c"
+  },
+  "apps/desktop/resources/bot-packages/seo-aeo-desk/0.5.2/assets/avatar.webp": {
+    "source": "naiwa-stance",
+    "sha256": "a98e80f5a3caf983165da9a24e8ea2fb13ea79bd8505b81717b8a14c14dfb3c6"
+  },
+  "apps/desktop/resources/bot-packages/startup-qa-bot/0.5.2/assets/avatar.webp": {
+    "source": "nailong",
+    "sha256": "6470be8da7f173d0829bde3cc0bb14893af570a1ed1c796cd21609725b2e8777"
+  },
+  "apps/desktop/resources/bot-packages/video-editor/0.5.2/assets/avatar.webp": {
+    "source": "naigou",
+    "sha256": "1f1020087974fab61b424329e12a93221a80328d4508caf8cb82357b6b24f2cf"
+  },
+  "apps/desktop/resources/icon.png": {
+    "source": "naidan",
+    "sha256": "11d04b611e49a21e10def8a905b80d7a021cf00af78decf81d78ffea63fda63c"
+  },
+  "apps/desktop/resources/icon-dock.png": {
+    "source": "naidan",
+    "sha256": "11d04b611e49a21e10def8a905b80d7a021cf00af78decf81d78ffea63fda63c"
+  },
+  "apps/desktop/resources/icon-master-1024.png": {
+    "source": "naidan",
+    "sha256": "6c86674d1a97c02c15c8287de5c37a7fe2257c993993d82d4379f0907f158e85"
+  },
+  "apps/desktop/resources/icon.ico": {
+    "source": "naidan",
+    "sha256": "9dce2b922ace93a1a80931d91f743096ef1d3b3d0b12a6acacc8fe75b002ddef"
+  },
+  "apps/desktop/resources/icon.icns": {
+    "source": "naidan",
+    "sha256": "298ef998a1494ffbfe14abf76eed86d9e0bd53cacef8f4d89090bf7976dceb0f"
+  },
+  "apps/desktop/cindy-updater/src-tauri/icons/icon.png": {
+    "source": "naidan",
+    "sha256": "11d04b611e49a21e10def8a905b80d7a021cf00af78decf81d78ffea63fda63c"
+  },
+  "apps/desktop/cindy-updater/src-tauri/icons/icon.ico": {
+    "source": "naidan",
+    "sha256": "9dce2b922ace93a1a80931d91f743096ef1d3b3d0b12a6acacc8fe75b002ddef"
+  },
+  "apps/mobile/assets/icon.png": {
+    "source": "naidan",
+    "sha256": "6c86674d1a97c02c15c8287de5c37a7fe2257c993993d82d4379f0907f158e85"
+  },
+  "apps/mobile/assets/favicon.png": {
+    "source": "naidan",
+    "sha256": "c01c74be593b96943fd824d3b2310304739d66927d2f4f3c6d4d02720167e97f"
+  },
+  "apps/mobile/assets/splash-icon.png": {
+    "source": "naidan",
+    "sha256": "6c86674d1a97c02c15c8287de5c37a7fe2257c993993d82d4379f0907f158e85"
+  },
+  "apps/mobile/assets/android-icon-foreground.png": {
+    "source": "naidan",
+    "sha256": "11d04b611e49a21e10def8a905b80d7a021cf00af78decf81d78ffea63fda63c"
+  },
+  "apps/mobile/assets/android-icon-monochrome.png": {
+    "source": "naidan icon silhouette",
+    "sha256": "b4acd5ff036be808b81e16ab5ec018aef939a25192e422b50beea267a5f15384"
+  },
+  "apps/mobile/plugins/usage-widgets/Assets.xcassets/logo-cindy.imageset/logo-cindy.svg": {
+    "source": "naidan icon silhouette",
+    "sha256": "1ed5f6f9f55691efd38e8d9e10a0cf22dae7719218e8adfbe3396482671af741"
+  },
+  "apps/desktop/resources/macicon.jpg": {
+    "source": "naidan",
+    "sha256": "b95efc3ce6d636e114ab5e2a5a959699a3e9996224f6a3b2835b96a096144122"
+  },
+  "apps/desktop/resources/bgicon.jpg": {
+    "source": "naidan",
+    "sha256": "3d51df64f726530c680f05ebb577ea0ec7fa24330682dded23fe692c59a9d132"
+  },
+  "apps/mobile/assets/update/app-icon.jpg": {
+    "source": "naidan",
+    "sha256": "a1650b52d27c667e65d820bf0ce3efb928b3ce4fa5bbc704ce39dc19de387c1c"
+  },
+  "apps/desktop/src/renderer/assets/login/hero.png": {
+    "source": "naiwa-belly-laugh",
+    "sha256": "ee767a6857d11e0a8a701fe65849e46ad5864d5cd8d97dbafd9142f4cfc64362"
+  },
+  "apps/desktop/src/renderer/assets/login/hero@2x.png": {
+    "source": "naiwa-belly-laugh",
+    "sha256": "65f5f882d618023b8257569f017f4f687708ec4c6f4a3020a3cc584053e0a4d9"
+  },
+  "apps/desktop/src/renderer/assets/splash/illustration.webp": {
+    "source": "naiwa-belly-laugh",
+    "sha256": "7f1d7545caff405e7d3352cb3afa70e5c59db18236b6faca3ad1f1551a2723ed"
+  },
+  "apps/mobile/assets/login/login-hero-pad-landscape.png": {
+    "source": "naiwa-belly-laugh",
+    "sha256": "247fa7d9020740a4caf8b4b2dd61b3fa2508b8dd78a7123dcfdf1a8b23183037"
+  },
+  "apps/mobile/assets/login/login-hero-pad-landscape@2x.png": {
+    "source": "naiwa-belly-laugh",
+    "sha256": "db365e61b4e970652db38ff08f5fe09b9aae032d73df9777af3b6211c7f1081d"
+  },
+  "apps/mobile/assets/login/login-hero-pad-portrait.png": {
+    "source": "naiwa-belly-laugh",
+    "sha256": "d927f39dcfeb70b5d503de6588b023e05c93b4a11952213c450030c939c749cc"
+  },
+  "apps/mobile/assets/login/login-hero-pad-portrait@2x.png": {
+    "source": "naiwa-belly-laugh",
+    "sha256": "4421b9b7ae49f74a6006029bdd483fd9f86af2ab9fbca8f1e1a90c831f4137f9"
+  },
+  "apps/mobile/assets/login/login-hero@2x.png": {
+    "source": "naiwa-belly-laugh",
+    "sha256": "577ea4081e3b65c8b8355ce1092d6286969be0ed80be43623857a630b90fd10f"
+  },
+  "apps/mobile/assets/login/login-hero@3x.png": {
+    "source": "naiwa-belly-laugh",
+    "sha256": "00f623ddd8b22753320ecc2a45392cdfe3b26acb4c0e5dee62e213313f12eae1"
+  },
+  "apps/mobile/assets/splash/cindy-splash-illustration-fade.webp": {
+    "source": "naiwa-belly-laugh",
+    "sha256": "1c78e4c0589c639934a782d9012339a7ffeda32eb622611cfb8a4838db265a27"
+  },
+  "apps/mobile/assets/splash/cindy-splash-illustration.webp": {
+    "source": "naiwa-belly-laugh",
+    "sha256": "1c78e4c0589c639934a782d9012339a7ffeda32eb622611cfb8a4838db265a27"
+  },
+  "apps/desktop/src/renderer/assets/login/chibi/chibi-failure.png": {
+    "source": "naiwa-surprised",
+    "sha256": "ee508d417aa6fdf509b8ef67cfe13fe569fc58cb8dcb697fd38d189812608ec8"
+  },
+  "apps/desktop/src/renderer/assets/login/chibi/chibi-failure@2x.png": {
+    "source": "naiwa-surprised",
+    "sha256": "ea7717fff9a347db73038cce80d60c48029e4f5145b02342bd3f6a09feb30ea6"
+  },
+  "apps/desktop/src/renderer/assets/login/chibi/chibi-failure@3x.png": {
+    "source": "naiwa-surprised",
+    "sha256": "787c92a1bbea88e8c8404140ac1be18097d78c11c17e9650096a9a7b7b7468cd"
+  },
+  "apps/desktop/src/renderer/assets/login/chibi/chibi-neutral.png": {
+    "source": "naiwa-thinking",
+    "sha256": "178839cc8333bb0ef9675b5e72d367ad63fb4ec9a777aae24e6584768e8ed773"
+  },
+  "apps/desktop/src/renderer/assets/login/chibi/chibi-neutral@2x.png": {
+    "source": "naiwa-thinking",
+    "sha256": "7f833c451f6d4f48faffe508f1a5e7e64c774634d1c290207d5ed3c2a267cbcb"
+  },
+  "apps/desktop/src/renderer/assets/login/chibi/chibi-neutral@3x.png": {
+    "source": "naiwa-thinking",
+    "sha256": "ab6308a9b7fe3976d0e8dddefc1c3075f9e63558db00f56c55defedc7bc18995"
+  },
+  "apps/desktop/src/renderer/assets/login/chibi/chibi-success.png": {
+    "source": "naiwa-laugh",
+    "sha256": "7d0253bb4f4b06ac0e32c82669e639c4be8e3eb7ef2f61d62c8401bbf42d3349"
+  },
+  "apps/desktop/src/renderer/assets/login/chibi/chibi-success@2x.png": {
+    "source": "naiwa-laugh",
+    "sha256": "b6702c97afaafe3b53fd6d45a08b2913e108c5a96b4a13b45f3e3c2e9dde40ed"
+  },
+  "apps/desktop/src/renderer/assets/login/chibi/chibi-success@3x.png": {
+    "source": "naiwa-laugh",
+    "sha256": "ee6abc47ea5f45ac82a14c2d1d22b293525f2d6b2362d3441bb90b817839c1e1"
+  },
+  "apps/desktop/src/renderer/assets/cindy-logo-dark.png": {
+    "source": "typography: 奶蛙",
+    "sha256": "aa8c3e7f4b55e431bd5adb5738eff8334bba51687920e11b387f95fdf8905922"
+  },
+  "apps/desktop/src/renderer/assets/cindy-logo-light.png": {
+    "source": "typography: 奶蛙",
+    "sha256": "7635601276839a032d5a8c576c2f52161b2cadcfd02bc7bb8be7a72c06059fe8"
+  },
+  "apps/desktop/src/renderer/assets/logo-dark.png": {
+    "source": "typography: 奶蛙",
+    "sha256": "c7cd2b24dc5bfbe828455f838f13e634c528bed4153db24967d632bad1677352"
+  },
+  "apps/desktop/src/renderer/assets/logo-light.png": {
+    "source": "typography: 奶蛙",
+    "sha256": "e6cd5afed637591d8bf5b9b5a13a8ef1a26224bbe2b97a6e75bd85d0914b8818"
+  },
+  "apps/desktop/src/renderer/assets/login/slogan-dark.png": {
+    "source": "typography: 捧腹大笑",
+    "sha256": "b41d94eda214791e4d5ea5cda7ebc3bae7b8e45a06a5333fa527757f6cf151fc"
+  },
+  "apps/desktop/src/renderer/assets/login/slogan-dark@2x.png": {
+    "source": "typography: 捧腹大笑",
+    "sha256": "caf995f73ea9f0da61e87ad8b47f1e74912baae41d9ce7e7fb299c8e874742f6"
+  },
+  "apps/desktop/src/renderer/assets/login/slogan.png": {
+    "source": "typography: 捧腹大笑",
+    "sha256": "997f4f0d6e4545b6a89ef23cf7ac5118b92e063d66e4816bfe5cddcf9094dad6"
+  },
+  "apps/desktop/src/renderer/assets/login/slogan@2x.png": {
+    "source": "typography: 捧腹大笑",
+    "sha256": "9f0664e781b8d927533df362baf3775a3fb2667e1d00ce397b8a8bf903fc3cc6"
+  },
+  "apps/desktop/src/renderer/assets/login/wordmark-dark.png": {
+    "source": "typography: 奶蛙",
+    "sha256": "e1c86756a74e6b98dfa7c8862d4857c254c061a2d1ed37a5ccff4c44185f8ead"
+  },
+  "apps/desktop/src/renderer/assets/login/wordmark-dark@2x.png": {
+    "source": "typography: 奶蛙",
+    "sha256": "b2461ccfd6e298da314a6ec8ce8e6cb7d4a3f93c77d1b2f86137cb63f0912e98"
+  },
+  "apps/desktop/src/renderer/assets/login/wordmark.png": {
+    "source": "typography: 奶蛙",
+    "sha256": "b0a52c377f0918c1bfb29ffc12deb208112321149e1aff830af0ebf07f740364"
+  },
+  "apps/desktop/src/renderer/assets/login/wordmark@2x.png": {
+    "source": "typography: 奶蛙",
+    "sha256": "a33437ab360c012d1dcdebf16fd8a73cef7ee77e8ae3dd229dc571d771f88f1e"
+  },
+  "apps/desktop/src/renderer/assets/splash/script.png": {
+    "source": "typography: 捧腹大笑",
+    "sha256": "848dc8343f6355b5a72c291b930aa8af0f0233c4b0610abf3d08fdd3952ee9d9"
+  },
+  "apps/desktop/src/renderer/assets/splash/wordmark-light.png": {
+    "source": "typography: 奶蛙",
+    "sha256": "86eb820a8882aee562b20ceecc478428e1f899652d1341e7a15e9ba09983b163"
+  },
+  "apps/desktop/src/renderer/assets/splash/wordmark.png": {
+    "source": "typography: 奶蛙",
+    "sha256": "44497be4521735a1c210a00efeb83138b3fdcffc7ae71f8d5c93cfae770c2361"
+  },
+  "apps/mobile/assets/login/login-slogan-dark@2x.png": {
+    "source": "typography: 捧腹大笑",
+    "sha256": "b41d94eda214791e4d5ea5cda7ebc3bae7b8e45a06a5333fa527757f6cf151fc"
+  },
+  "apps/mobile/assets/login/login-slogan-dark@3x.png": {
+    "source": "typography: 捧腹大笑",
+    "sha256": "8cc46da3bdac9b6c0f5164bdfff46614c2877e8ff64c2cd43e799226172d1b56"
+  },
+  "apps/mobile/assets/login/login-slogan@2x.png": {
+    "source": "typography: 捧腹大笑",
+    "sha256": "997f4f0d6e4545b6a89ef23cf7ac5118b92e063d66e4816bfe5cddcf9094dad6"
+  },
+  "apps/mobile/assets/login/login-slogan@3x.png": {
+    "source": "typography: 捧腹大笑",
+    "sha256": "1de6b946de35e2311e3debc16188d9460af5796b05fdda6ed0ba1b4f9cbd5ec4"
+  },
+  "apps/mobile/assets/login/login-wordmark-dark@2x.png": {
+    "source": "typography: 奶蛙",
+    "sha256": "e1c86756a74e6b98dfa7c8862d4857c254c061a2d1ed37a5ccff4c44185f8ead"
+  },
+  "apps/mobile/assets/login/login-wordmark-dark@3x.png": {
+    "source": "typography: 奶蛙",
+    "sha256": "894606e8f73095a5341d8e22f5e1324a255bb35ecd0b16c3ad162f3ffe1b89ae"
+  },
+  "apps/mobile/assets/login/login-wordmark@2x.png": {
+    "source": "typography: 奶蛙",
+    "sha256": "b0a52c377f0918c1bfb29ffc12deb208112321149e1aff830af0ebf07f740364"
+  },
+  "apps/mobile/assets/login/login-wordmark@3x.png": {
+    "source": "typography: 奶蛙",
+    "sha256": "0d3d78988cbfc607bd339f2d3955e16e334bf38acc518b22acda008b1f4dee96"
+  },
+  "apps/mobile/assets/splash/cindy-splash-script-white.png": {
+    "source": "typography: 捧腹大笑",
+    "sha256": "104b79b80a1ad2b5a6bf67cf80e4bef7549f498f404297ae747051e5a2093b6e"
+  },
+  "apps/mobile/assets/splash/cindy-splash-wordmark-white.png": {
+    "source": "typography: 奶蛙",
+    "sha256": "629667a5574ed7a06d7984cf65f6cf88b5ab86a9f2e9b278fde5f454fe78b1c5"
+  },
+  "apps/desktop/src/renderer/assets/agent-island-cindy.png": {
+    "source": "naiwa-laugh",
+    "sha256": "c82523c52453d47184d8f561a03caa9f18db5f4c207657367ff601d6c67ede7c"
+  },
+  "apps/desktop/native/agent-island/mascots/cindy.png": {
+    "source": "naiwa-laugh",
+    "sha256": "c82523c52453d47184d8f561a03caa9f18db5f4c207657367ff601d6c67ede7c"
+  },
+  "apps/desktop/src/renderer/assets/agent-island-blackcat.png": {
+    "source": "naigou",
+    "sha256": "cee3b531234c4fe1a1774882f44f7208292632a5fc17616c0181c3e0cf011741"
+  },
+  "apps/desktop/native/agent-island/mascots/blackcat.png": {
+    "source": "naigou",
+    "sha256": "cee3b531234c4fe1a1774882f44f7208292632a5fc17616c0181c3e0cf011741"
+  },
+  "apps/desktop/src/renderer/assets/agent-island-erika.png": {
+    "source": "naishu",
+    "sha256": "2ef6026cdceeb49aaa96786d74df04088647e14fa0782b91bd0d7a51988256c2"
+  },
+  "apps/desktop/native/agent-island/mascots/erika.png": {
+    "source": "naishu",
+    "sha256": "2ef6026cdceeb49aaa96786d74df04088647e14fa0782b91bd0d7a51988256c2"
+  },
+  "apps/desktop/src/renderer/assets/agent-island-pululu.svg": {
+    "source": "naidan",
+    "sha256": "a79020b41dcfef8cea15bb4273a99f0867754e1e72cded87823267658b149568"
+  },
+  "apps/desktop/src/renderer/assets/agent-island-tarara.png": {
+    "source": "nailong",
+    "sha256": "cca168d974a8837e184d6f1b80c7d6b4383a346fc668d105a123f3d88f38c896"
+  },
+  "apps/desktop/native/agent-island/mascots/tarara.png": {
+    "source": "nailong",
+    "sha256": "cca168d974a8837e184d6f1b80c7d6b4383a346fc668d105a123f3d88f38c896"
+  },
+  "apps/desktop/src/renderer/assets/agent-island-boli.png": {
+    "source": "naidan",
+    "sha256": "194d8063b4cdc273222a89e36e6ddee601bdce4d3231bd9c793f30bf31443e9b"
+  },
+  "apps/desktop/native/agent-island/mascots/boli.png": {
+    "source": "naidan",
+    "sha256": "194d8063b4cdc273222a89e36e6ddee601bdce4d3231bd9c793f30bf31443e9b"
+  },
+  "apps/desktop/src/renderer/assets/agent-island-whitesnow.png": {
+    "source": "naiji",
+    "sha256": "1aff1bd3906b5e651fdb399f4c60aa9b5dbe063c8caf2dab2f34b2926e9944b0"
+  },
+  "apps/desktop/native/agent-island/mascots/whitesnow.png": {
+    "source": "naiji",
+    "sha256": "1aff1bd3906b5e651fdb399f4c60aa9b5dbe063c8caf2dab2f34b2926e9944b0"
+  },
+  "apps/desktop/src/renderer/assets/agent-island-annie.png": {
+    "source": "naiwa-peeking",
+    "sha256": "b1567bef920bc2905d252907070d24ac45d55ef9583c074ab5edfb4a84cfb8c2"
+  },
+  "apps/desktop/native/agent-island/mascots/annie.png": {
+    "source": "naiwa-peeking",
+    "sha256": "b1567bef920bc2905d252907070d24ac45d55ef9583c074ab5edfb4a84cfb8c2"
+  },
+  "apps/desktop/src/renderer/assets/agent-island-chaku.png": {
+    "source": "naiwa-thinking",
+    "sha256": "5ac16bd21fdc13404ca8c73aeecf9fd763638204cfc00b0e62c15c393eeab6e4"
+  },
+  "apps/desktop/native/agent-island/mascots/chaku.png": {
+    "source": "naiwa-thinking",
+    "sha256": "5ac16bd21fdc13404ca8c73aeecf9fd763638204cfc00b0e62c15c393eeab6e4"
+  },
+  "apps/desktop/src/renderer/assets/agent-island-muffin.png": {
+    "source": "naicha",
+    "sha256": "d05a8c32dc88a8239120886c2c9d5b2a93ad1bcc85b9f559a1483e6a5135e4b9"
+  },
+  "apps/desktop/native/agent-island/mascots/muffin.png": {
+    "source": "naicha",
+    "sha256": "d05a8c32dc88a8239120886c2c9d5b2a93ad1bcc85b9f559a1483e6a5135e4b9"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/cindy-dream.webp": {
+    "source": "naidan",
+    "sha256": "2e43b2fb9c9910d6fd5663abb7c061a530b72ba090f026c207af6008c6146d73"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/cindy-neon.webp": {
+    "source": "naishu",
+    "sha256": "e1239ae9c62ff0925b4ed470132e59e983275bd751950c31ff45de8b88fe6bbe"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/cindy-night-glance.webp": {
+    "source": "naicha",
+    "sha256": "37e1440c9ada5eedebd660533167f996edcb6ca1396b1aa4191cb041785eae7d"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/cindy-prism.webp": {
+    "source": "naiji",
+    "sha256": "38fa30285f2a2b979131faa21ac56a31017f109514f1bb538fc39c505fd61ca6"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/cindy-scarlet-stroll.webp": {
+    "source": "naiwa-stance",
+    "sha256": "f3320c89d71b0be7e785860945ba4c96bc5d79e859656622ca3475ef4ff0109b"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/cindy-studio.webp": {
+    "source": "naiwa-thinking",
+    "sha256": "cd97304144f576de06bc80ace017b2c5a40195daf2d2ba8cba46be6fad143b94"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/cindy-whisper.webp": {
+    "source": "naiwa-laugh",
+    "sha256": "bc8e7638ca2db703966c996884ab1a1168554e81f89e43e0a0401529841f0045"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/cindy-window.webp": {
+    "source": "naiwa-peeking",
+    "sha256": "fbaa9ba54159591867c5d19c5397f09efcef2e7349621804c4836fbcb691cd40"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/previews/cindy-dream.webp": {
+    "source": "naidan",
+    "sha256": "5ce29e85bfed4424fc224197ce4af4c2ed1930de8d6bc991d5cdd2e494386d34"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/previews/cindy-studio.webp": {
+    "source": "naiwa-thinking",
+    "sha256": "d898449d31150b258c1efac066db63ef36f10b3afc93faf35d460ac949578292"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/previews/cindy-window.webp": {
+    "source": "naiwa-peeking",
+    "sha256": "26b53b263dc0bfb48ee7fd9d771010e5a802c8f05811444e9a4563b382246418"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/thumbnails/cindy-neon.webp": {
+    "source": "naishu",
+    "sha256": "a6fa8521b0fc000f026a15bd8220583842b517e997c92a235341647053ddc3e9"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/thumbnails/cindy-night-glance.webp": {
+    "source": "naicha",
+    "sha256": "accc5d3875b9d74921f99fd6fb7f7ad4a6dd263e9d03fb8823acbf4a7e7255b6"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/thumbnails/cindy-prism.webp": {
+    "source": "naiji",
+    "sha256": "dea1f1d0008c07ed3004552ab2ebc582a3fadf8a24e33f3f5e7e7cc15e879691"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/thumbnails/cindy-scarlet-stroll.webp": {
+    "source": "naiwa-stance",
+    "sha256": "890ad672a5357fcfe9154bed5762d306229028d2a4aa7c60c32c44445111ddf0"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/thumbnails/cindy-whisper.webp": {
+    "source": "naiwa-laugh",
+    "sha256": "46d508ef306f3e19ff9b98ea525921a01865a04c8073f4099182630fd208340a"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/cindy-window.mp4": {
+    "source": "naiwa-peeking (still video, no character animation)",
+    "sha256": "5a3e8846a51ca5af72afc1c7a0475bb0519745a1285e724d924427442cfa69b9"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/cindy-studio.mp4": {
+    "source": "naiwa-thinking (still video, no character animation)",
+    "sha256": "418abde7dfc322133ad81ae11ae1aa3cd7043b96c139acecf32c672ea7ea655e"
+  },
+  "apps/desktop/src/renderer/assets/wallpapers/cindy-dream.mp4": {
+    "source": "naidan (still video, no character animation)",
+    "sha256": "ceabbb9eaf15bd753096891e0bab1c2b698f2783591bbea35570431f78dcccce"
+  },
+  "apps/desktop/resources/dmg/background.pdf": {
+    "source": "naiwa-belly-laugh + fork typography",
+    "sha256": "26d4a90620f408448962f2c820dda40a857f7234cf1af9d990609a011497d580"
+  }
+}

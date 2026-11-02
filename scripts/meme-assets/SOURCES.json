@@ -1,0 +1,91 @@
+{
+  "reference": "捧腹大笑思想与奶龙学概论（第一版）",
+  "referenceSha256": "4b99320ed69d8d1df25134163b79c1534e133161fad0b1f4ba74161a10f1ba35",
+  "providedBy": "fork owner",
+  "sourceDate": "2026-09-29",
+  "extractedOn": "2026-11-02",
+  "extraction": "Embedded JPEG bytes copied without recompression; the complete source PDF is not included.",
+  "license": "Third-party meme artwork; authorship and general redistribution rights are not asserted. Existing repository software license does not grant rights to these images.",
+  "images": {
+    "naiwa-standing": {
+      "page": 3,
+      "embeddedImageIndex": 2,
+      "sha256": "4ec47b76c34f5a0e2a670f7fe6a675d49bd0aaeb524a03d83add37e9f209074d"
+    },
+    "naidan": {
+      "page": 11,
+      "embeddedImageIndex": 3,
+      "sha256": "0cd5cc147d6bdd0ee9b9b45b28dcf61e763ded89644bcbe291c3601db2006aaa"
+    },
+    "naiwa-laugh": {
+      "page": 9,
+      "embeddedImageIndex": 0,
+      "sha256": "9edb57885d4d2fa5e3b4accd0a8b1989f74a4e7a19d85bf01325daf231628a3f"
+    },
+    "naiwa-thinking": {
+      "page": 8,
+      "embeddedImageIndex": 1,
+      "sha256": "d2bcd1fd3afa640218f5ce08155cbb0007b8b84a1f95e6cd61333645fe75febd"
+    },
+    "naiwa-peeking": {
+      "page": 3,
+      "embeddedImageIndex": 0,
+      "sha256": "bf38816b87f5f848683191b1586c9a471a27a21cd6b5f259a535ff9d8dba1945"
+    },
+    "naiwa-surprised": {
+      "page": 8,
+      "embeddedImageIndex": 0,
+      "sha256": "1fd848a4dbc8352120b12cf5f1587e8f5e5f6d93422dc4685b5696cc7bd07fd4"
+    },
+    "naiwa-crawling": {
+      "page": 9,
+      "embeddedImageIndex": 1,
+      "sha256": "16c91ba53247cffee7f2f200b66a809befb193dd3ad3b089ddfd8e1c9ff44ebd"
+    },
+    "naiwa-stance": {
+      "page": 9,
+      "embeddedImageIndex": 2,
+      "sha256": "94b1d6edcd7d071e7e35fd174081e3ab52d10344328c6bf5738a288d23884686"
+    },
+    "nailong": {
+      "page": 3,
+      "embeddedImageIndex": 1,
+      "sha256": "d02d9cf7bdcd05ccc8ab8b5cdd3cd6b738d2b6e7bc76fa8684db563d4cbd737f"
+    },
+    "naigou": {
+      "page": 11,
+      "embeddedImageIndex": 4,
+      "sha256": "01d60003e4fff39adadcc49d42d5a570b95c98ccea5c2ae214e1211a9c9ca8c6"
+    },
+    "naiji": {
+      "page": 11,
+      "embeddedImageIndex": 5,
+      "sha256": "c5d43c6db790d235b2b474505598e8442df5c755913b7eaa595b7d1095d0cc08"
+    },
+    "naicha": {
+      "page": 12,
+      "embeddedImageIndex": 0,
+      "sha256": "bfd1fc42afcb95bf4f195f77906df30bfa2cd0faeceb776cb2b7140275daecc1"
+    },
+    "naishu": {
+      "page": 12,
+      "embeddedImageIndex": 3,
+      "sha256": "ee2e1b317665be3dba17cde69371e080898ffde36946441ba7c7c91e0aa1c419"
+    },
+    "naicai": {
+      "page": 13,
+      "embeddedImageIndex": 0,
+      "sha256": "f96f54d2e23d802f61584f01f55bf39c023263503747db1373edbd1f88d14510"
+    },
+    "nainiu": {
+      "page": 13,
+      "embeddedImageIndex": 3,
+      "sha256": "546ca76d71e665b6688ff1e1a8e4c6c22c19fa0e7bba92b2e260b3497eb4d1c0"
+    },
+    "naiwa-belly-laugh": {
+      "page": 6,
+      "embeddedImageIndex": 1,
+      "sha256": "8fd36e0ff00e974fb3f36bc40073cbe96febdcb368db31350e2d4a782500b71d"
+    }
+  }
+}

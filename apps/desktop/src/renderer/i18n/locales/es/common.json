@@ -2222,14 +2222,14 @@
         "nonePreview": "Ninguno",
         "options": {
           "none": "Ninguno",
-          "cindy-window": "Cindy · Compañero de ventana",
-          "cindy-studio": "Cindy · Atelier del Futuro",
-          "cindy-dream": "Cindy · Viaje de ensueño",
-          "cindy-whisper": "Cindy · Susurro",
-          "cindy-night-glance": "Cindy · Mirada nocturna",
-          "cindy-scarlet-stroll": "Cindy · Paseo Escarlata",
-          "cindy-neon": "Cindy · Silueta de neón",
-          "cindy-prism": "Cindy · Fragmentos de prisma",
+          "cindy-window": "Naiwa · Peek",
+          "cindy-studio": "Naiwa · Think",
+          "cindy-dream": "Naidan · Andi",
+          "cindy-whisper": "Naiwa · Laugh",
+          "cindy-night-glance": "Naicha",
+          "cindy-scarlet-stroll": "Naiwa · Stance",
+          "cindy-neon": "Naishu",
+          "cindy-prism": "Naiji",
           "night-launch": "Lanzamiento nocturno",
           "silent-orbits": "Órbitas silenciosas",
           "dune-dawn": "Amanecer de dunas",
@@ -2392,44 +2392,44 @@
       "skinAnimationAria": "Cambie la vista previa de la animación {{skin}}",
       "skins": {
         "cindy": {
-          "name": "Cindy",
-          "description": "La propia Cindy, vigilando cada carrera."
+          "name": "Naiwa · Laugh",
+          "description": "Imagen original del meme, con el rostro y los ojos intactos."
         },
         "blackcat": {
-          "name": "gato negro",
-          "description": "Un gato negro sereno cuyos ojos amarillos se mantienen agudos contra la muesca oscura."
+          "name": "Naigou",
+          "description": "Imagen original del meme, con el rostro y los ojos intactos."
         },
         "pululu": {
-          "name": "Pululu",
-          "description": "El pequeño y tranquilo guardián de TapFamily: de cabeza redonda, sincero y dispuesto a resolver tareas complicadas."
+          "name": "Naidan",
+          "description": "Imagen original del meme, con el rostro y los ojos intactos."
         },
         "tarara": {
-          "name": "tarara",
-          "description": "El explorador incansable de TapFamily, lo suficientemente curioso como para emprender su tarea en territorio desconocido."
+          "name": "Nailong",
+          "description": "Imagen original del meme, con el rostro y los ojos intactos."
         },
         "boli": {
-          "name": "Boli",
-          "description": "Un compañero Boli rosa con un ligero rebote y una silueta limpia para un ambiente isleño más suave."
+          "name": "Naidan · Andi",
+          "description": "Imagen original del meme, con el rostro y los ojos intactos."
         },
         "whitesnow": {
-          "name": "Apple Chica",
-          "description": "El luchador de secundaria con cabeza de manzana de Flash Party, que agrega energía contundente a las tareas de carrera."
+          "name": "Naiji",
+          "description": "Imagen original del meme, con el rostro y los ojos intactos."
         },
         "annie": {
-          "name": "annie",
-          "description": "La cálida guía de la ciudad de Heartopia, que hace que incluso las alertas de tareas completadas se sientan un poco más suaves."
+          "name": "Naiwa · Peek",
+          "description": "Imagen original del meme, con el rostro y los ojos intactos."
         },
         "chaku": {
-          "name": "Chaku",
-          "description": "El compañero de ojos brillantes de Iser, atento a los momentos en que una tarea necesita su atención."
+          "name": "Naiwa · Think",
+          "description": "Imagen original del meme, con el rostro y los ojos intactos."
         },
         "muffin": {
-          "name": "muffin",
-          "description": "Un compañero suave de color azul grisáceo que hace que las tareas al ejecutar se sientan ligeras y divertidas."
+          "name": "Naicha",
+          "description": "Imagen original del meme, con el rostro y los ojos intactos."
         },
         "erika": {
-          "name": "erika",
-          "description": "Erika con su horquilla en forma de media luna: cálidos ojos marrones, silenciosamente concentrados en carreras largas."
+          "name": "Naishu",
+          "description": "Imagen original del meme, con el rostro y los ojos intactos."
         }
       },
       "soundEvents": {

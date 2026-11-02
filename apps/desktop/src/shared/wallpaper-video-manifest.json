@@ -1,106 +1,58 @@
 {
   "cindy-window": {
-    "delivery": "cdn",
-    "sha256": "10d72d8ab0f39a5ceec6f8746396c36bb6d7dd345ac18af209069678a90d010d",
-    "bytes": 6091872,
-    "width": 2304,
-    "height": 1440,
-    "fps": 24,
-    "duration": 12.041666666666666,
+    "delivery": "bundled",
     "image": {
-      "sha256": "bfbb37f4a710e110d39596943bc5d68dfaf88d6989c1bc4e5adfbb2e48612d00",
-      "bytes": 1101332
+      "sha256": "fbaa9ba54159591867c5d19c5397f09efcef2e7349621804c4836fbcb691cd40",
+      "bytes": 352004
     }
   },
   "cindy-studio": {
-    "delivery": "cdn",
-    "sha256": "b33f9b527584ae8c8b085536a0823a346e4879fa845e62e5ac41ae1b7b0097b1",
-    "bytes": 3606656,
-    "width": 2304,
-    "height": 1440,
-    "fps": 24,
-    "duration": 12.041666666666666,
+    "delivery": "bundled",
     "image": {
-      "sha256": "7d2af2acb2df6b7fcbb40030299b3518c8de81e138f638b95ca563521f374319",
-      "bytes": 1649522
+      "sha256": "cd97304144f576de06bc80ace017b2c5a40195daf2d2ba8cba46be6fad143b94",
+      "bytes": 730210
     }
   },
   "cindy-dream": {
-    "delivery": "cdn",
-    "sha256": "de9e0dc2235310bdbee30f1bf951d94ce8299b18ba674463df407b76bb162def",
-    "bytes": 6312719,
-    "width": 2304,
-    "height": 1440,
-    "fps": 24,
-    "duration": 12.041666666666666,
+    "delivery": "bundled",
     "image": {
-      "sha256": "2a2043b9207c7dfaaed5951b567eba1eb24aeb192c3eb78a3c0ee9a46a732361",
-      "bytes": 1790734
+      "sha256": "2e43b2fb9c9910d6fd5663abb7c061a530b72ba090f026c207af6008c6146d73",
+      "bytes": 556756
     }
   },
   "cindy-whisper": {
-    "delivery": "cdn",
-    "sha256": "5a292e50cac2dbf08099440913984750e32df56c43e5ada1535da5958aabbe3d",
-    "bytes": 18353638,
-    "width": 1920,
-    "height": 1080,
-    "fps": 24,
-    "duration": 10.042,
+    "delivery": "bundled",
     "image": {
-      "sha256": "20c6046e462d514b7fc7d4d5b30351c510f395915bb91fdbd23d8e3cd61ba24d",
-      "bytes": 570506
+      "sha256": "bc8e7638ca2db703966c996884ab1a1168554e81f89e43e0a0401529841f0045",
+      "bytes": 1121964
     }
   },
   "cindy-neon": {
-    "delivery": "cdn",
-    "sha256": "bd4cad0dc270ad2e8f243b4f2e8975bf9bfc44dc124200d2a27fa46f0a3d6a46",
-    "bytes": 14085969,
-    "width": 1920,
-    "height": 1080,
-    "fps": 24,
-    "duration": 10.042,
+    "delivery": "bundled",
     "image": {
-      "sha256": "e8a38fc4e291e7f3930d1cafd6d0cf73c141be150ffac783754ec83fd28e2069",
-      "bytes": 192046
+      "sha256": "e1239ae9c62ff0925b4ed470132e59e983275bd751950c31ff45de8b88fe6bbe",
+      "bytes": 445942
     }
   },
   "cindy-prism": {
-    "delivery": "cdn",
-    "sha256": "1a7f7f9dae1ecbb7b60e3e7968f6ae7847d2eb65b009437ce36ffc0e14e6bf01",
-    "bytes": 22641879,
-    "width": 1920,
-    "height": 1080,
-    "fps": 24,
-    "duration": 10.042,
+    "delivery": "bundled",
     "image": {
-      "sha256": "84c73fc02a1232e7178ad22a6034c003f5d657c79f3db2199ae25a1a3b1c5d83",
-      "bytes": 369734
+      "sha256": "38fa30285f2a2b979131faa21ac56a31017f109514f1bb538fc39c505fd61ca6",
+      "bytes": 279690
     }
   },
   "cindy-night-glance": {
-    "delivery": "cdn",
-    "sha256": "e56374d60a824e01e29dbaaa8da543634dae0ef3be6df57ad7ee7e45293ff5ff",
-    "bytes": 14780511,
-    "width": 1920,
-    "height": 1080,
-    "fps": 24,
-    "duration": 10.042,
+    "delivery": "bundled",
     "image": {
-      "sha256": "091d6d0ad4c64c6d658cce219f35fe72021e3af849512d2cb8c50bdeeb37315d",
-      "bytes": 799156
+      "sha256": "37e1440c9ada5eedebd660533167f996edcb6ca1396b1aa4191cb041785eae7d",
+      "bytes": 1009844
     }
   },
   "cindy-scarlet-stroll": {
-    "delivery": "cdn",
-    "sha256": "2e4f78d07aa987f06e5da2fa0497f81cc1ca86c5f6a037dfd0f533dbcf6d7200",
-    "bytes": 16397997,
-    "width": 1920,
-    "height": 1080,
-    "fps": 24,
-    "duration": 10.042,
+    "delivery": "bundled",
     "image": {
-      "sha256": "4cecd5b6ebefdc298c881eb17f56445565eea45ebb189dac8b8dc1ed01bb5c7c",
-      "bytes": 677244
+      "sha256": "f3320c89d71b0be7e785860945ba4c96bc5d79e859656622ca3475ef4ff0109b",
+      "bytes": 747964
     }
   },
   "night-launch": {

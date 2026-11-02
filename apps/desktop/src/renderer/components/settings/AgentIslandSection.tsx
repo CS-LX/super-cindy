@@ -552,8 +552,8 @@ function MascotPreviewImage({
 }
 
 /**
- * Sprite 皮肤预览:键盘与眼睛全部用绝对定位 HTML 元素表达(原为内联 SVG),
- * 让 keyboard-tap / key-flash / eye-focus 常驻动画挂在 HTML 上(规则 7)。
+ * Meme originals already contain their eyes. Only the surrounding keyboard and
+ * whole-image motion are animated; never paint replacement eyes over the artwork.
  * props(src / config)均为模块常量,memo 让 1.7s 轮播 tick 不再重渲此子树
  * (动画模式切换走父级 data-motion 属性,不经过本组件)。
  */
@@ -564,7 +564,6 @@ const SpriteMascotPreview = memo(function SpriteMascotPreview({
   src: string;
   config: MascotPreviewConfig;
 }) {
-  const eyesBox = getMascotEyesBox(config);
   return (
     <div className="relative h-10 w-10">
       <div
@@ -608,24 +607,6 @@ const SpriteMascotPreview = memo(function SpriteMascotPreview({
         style={{ '--agent-island-mascot-scale': config.imageScale ?? 1 } as CSSProperties}
       >
         <MascotPreviewImage src={src} />
-        <div
-          className="agent-island-mascot-eyes pointer-events-none absolute"
-          style={mascotViewBoxStyle(eyesBox.x, eyesBox.y, eyesBox.width, eyesBox.height)}
-          aria-hidden="true"
-        >
-          {/* 眼睛盒左边界 = 左眼左缘、右边界 = 右眼右缘,两眼贴边定位即可 */}
-          {(['left', 'right'] as const).map((side) => (
-            <span
-              key={side}
-              className="absolute top-0 block h-full rounded-[50%]"
-              style={{
-                [side]: 0,
-                width: pct(config.eyeRx * 2, eyesBox.width),
-                backgroundColor: config.eyeColor,
-              }}
-            />
-          ))}
-        </div>
       </div>
     </div>
   );
@@ -643,18 +624,6 @@ function mascotViewBoxStyle(
     top: pct(y),
     width: pct(width),
     height: pct(height),
-  };
-}
-
-/** 两眼外接盒(即原 SVG <g> 的 fill-box,eye-focus 的 scaleY 以其中心为原点)。 */
-function getMascotEyesBox(config: MascotPreviewConfig) {
-  const left = config.eyeLeftX - config.eyeRx;
-  const top = config.eyeY - config.eyeRy;
-  return {
-    x: left,
-    y: top,
-    width: config.eyeRightX + config.eyeRx - left,
-    height: config.eyeRy * 2,
   };
 }
 

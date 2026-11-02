@@ -1,13 +1,13 @@
 import type { WallpaperId } from '@/../shared/appearanceSettings';
 import wallpaperManifest from '@/../shared/wallpaper-video-manifest.json';
-import cindyWindow from '@/assets/wallpapers/previews/cindy-window.webp';
-import cindyStudio from '@/assets/wallpapers/previews/cindy-studio.webp';
-import cindyDream from '@/assets/wallpapers/previews/cindy-dream.webp';
-import cindyWhisper from '@/assets/wallpapers/thumbnails/cindy-whisper.webp';
-import cindyNeon from '@/assets/wallpapers/thumbnails/cindy-neon.webp';
-import cindyPrism from '@/assets/wallpapers/thumbnails/cindy-prism.webp';
-import cindyNightGlance from '@/assets/wallpapers/thumbnails/cindy-night-glance.webp';
-import cindyScarletStroll from '@/assets/wallpapers/thumbnails/cindy-scarlet-stroll.webp';
+import cindyWindow from '@/assets/wallpapers/cindy-window.webp';
+import cindyStudio from '@/assets/wallpapers/cindy-studio.webp';
+import cindyDream from '@/assets/wallpapers/cindy-dream.webp';
+import cindyWhisper from '@/assets/wallpapers/cindy-whisper.webp';
+import cindyNeon from '@/assets/wallpapers/cindy-neon.webp';
+import cindyPrism from '@/assets/wallpapers/cindy-prism.webp';
+import cindyNightGlance from '@/assets/wallpapers/cindy-night-glance.webp';
+import cindyScarletStroll from '@/assets/wallpapers/cindy-scarlet-stroll.webp';
 import nightLaunch from '@/assets/wallpapers/thumbnails/night-launch.webp';
 import silentOrbits from '@/assets/wallpapers/thumbnails/silent-orbits.webp';
 import duneDawn from '@/assets/wallpapers/thumbnails/dune-dawn.webp';
@@ -17,7 +17,7 @@ import duneSphere from '@/assets/wallpapers/thumbnails/dune-sphere.webp';
 import oceanClouds from '@/assets/wallpapers/thumbnails/ocean-clouds.webp';
 import roseQuartz from '@/assets/wallpapers/thumbnails/rose-quartz.webp';
 
-/** All official originals use the main-process downloader; only previews are bundled. */
+/** Meme originals ship locally; unrelated scenery keeps the upstream verified CDN delivery. */
 export function isCdnWallpaper(id: WallpaperId): id is keyof typeof wallpaperManifest {
   return (
     Object.hasOwn(wallpaperManifest, id) &&

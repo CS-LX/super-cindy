@@ -62,7 +62,7 @@ describe('application wallpaper lifecycle', () => {
     );
     vi.stubGlobal('electronAPI', {
       appearanceSettings: {
-        getSync: () => ({ ...DEFAULT_APPEARANCE_SETTINGS, wallpaperId: 'cindy-window' }),
+        getSync: () => ({ ...DEFAULT_APPEARANCE_SETTINGS, wallpaperId: 'silent-orbits' }),
         onChanged: () => () => {},
         setPatch,
         ensureWallpaperImage: ensureImage,
@@ -74,7 +74,7 @@ describe('application wallpaper lifecycle', () => {
         <Controls />
       </WallpaperSettingsProvider>,
     );
-    await waitFor(() => expect(ensureImage).toHaveBeenCalledExactlyOnceWith('cindy-window'));
+    await waitFor(() => expect(ensureImage).toHaveBeenCalledExactlyOnceWith('silent-orbits'));
     const background = () =>
       document.documentElement.style.getPropertyValue('--app-wallpaper-image');
     const originalBackground = background();
@@ -84,7 +84,7 @@ describe('application wallpaper lifecycle', () => {
     );
     expect(background()).toBe(originalBackground);
     await act(async () =>
-      finishes.get('cindy-window')!(`cindy-media://client-wallpaper/${'a'.repeat(64)}.webp`),
+      finishes.get('silent-orbits')!(`cindy-media://client-wallpaper/${'a'.repeat(64)}.webp`),
     );
     expect(background()).toBe(originalBackground);
     const stillUrl = `cindy-media://client-wallpaper/${'b'.repeat(64)}.webp`;
@@ -103,13 +103,13 @@ describe('application wallpaper lifecycle', () => {
     expect(ensureVideo).not.toHaveBeenCalled();
   });
 
-  it('weights required image and video progress by bytes, excluding video in static mode', async () => {
+  it('tracks still scenery downloads and ignores unavailable video progress', async () => {
     const listeners = new Set<(progress: WallpaperDownloadProgress) => void>();
     vi.stubGlobal('electronAPI', {
       appearanceSettings: {
         getSync: () => ({
           ...DEFAULT_APPEARANCE_SETTINGS,
-          wallpaperId: 'cindy-window',
+          wallpaperId: 'night-launch',
           wallpaperMotion: 'dynamic',
         }),
         onChanged: () => () => {},
@@ -127,30 +127,60 @@ describe('application wallpaper lifecycle', () => {
         <Controls />
       </WallpaperSettingsProvider>,
     );
-    const imageTotal = manifest['cindy-window'].image.bytes;
-    const videoTotal = manifest['cindy-window'].bytes;
+    const imageTotal = manifest['night-launch'].image.bytes;
+    const videoTotal = 100;
     act(() => {
       for (const listener of listeners) {
         listener({
-          wallpaperId: 'cindy-window',
+          wallpaperId: 'night-launch',
           kind: 'image',
           loaded: imageTotal / 2,
           total: imageTotal,
         });
         listener({
-          wallpaperId: 'cindy-window',
+          wallpaperId: 'night-launch',
           kind: 'video',
           loaded: videoTotal / 4,
           total: videoTotal,
         });
       }
     });
-    expect(Number(screen.getByTestId('download-progress').textContent)).toBeCloseTo(
-      (imageTotal / 2 + videoTotal / 4) / (imageTotal + videoTotal),
-    );
+    expect(Number(screen.getByTestId('download-progress').textContent)).toBeCloseTo(0.5);
     fireEvent.click(screen.getByText('Static'));
     expect(Number(screen.getByTestId('download-progress').textContent)).toBe(0.5);
   });
+  // The fork owner requires original memes offline, including previously saved scene IDs.
+  it.each(['cindy-window', 'cindy-whisper', 'cindy-neon'] as const)(
+    'renders bundled %s without downloading old artwork even in dynamic mode',
+    (wallpaperId) => {
+      const ensureImage = vi.fn();
+      const ensureVideo = vi.fn();
+      vi.stubGlobal('electronAPI', {
+        appearanceSettings: {
+          getSync: () => ({
+            ...DEFAULT_APPEARANCE_SETTINGS,
+            wallpaperId,
+            wallpaperMotion: 'dynamic',
+          }),
+          onChanged: () => () => {},
+          ensureWallpaperImage: ensureImage,
+          ensureWallpaperVideo: ensureVideo,
+        },
+      });
+      render(
+        <WallpaperSettingsProvider>
+          <Controls />
+        </WallpaperSettingsProvider>,
+      );
+      expect(document.documentElement.style.getPropertyValue('--app-wallpaper-image')).toContain(
+        `${wallpaperId}.webp`,
+      );
+      expect(ensureImage).not.toHaveBeenCalled();
+      expect(ensureVideo).not.toHaveBeenCalled();
+      expect(document.querySelector('video')).toBeNull();
+      expect(Number(screen.getByTestId('download-progress').textContent)).toBe(0);
+    },
+  );
   it.each(['webp', 'mp4'])(
     'applies blur to %s, follows window updates and clears on hide/reset',
     async (ext) => {

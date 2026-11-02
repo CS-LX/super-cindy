@@ -2157,14 +2157,14 @@
         "nonePreview": "なし",
         "options": {
           "none": "なし",
-          "cindy-window": "Cindy · 窓辺のひととき",
-          "cindy-studio": "Cindy · 未来のアトリエ",
-          "cindy-dream": "Cindy · 夢の旅",
-          "cindy-whisper": "Cindy · ささやき",
-          "cindy-night-glance": "Cindy · 夜の振り返り",
-          "cindy-scarlet-stroll": "Cindy · 赤い夜の散歩",
-          "cindy-neon": "Cindy · ネオンの横顔",
-          "cindy-prism": "Cindy · プリズムのかけら",
+          "cindy-window": "Naiwa · Peek",
+          "cindy-studio": "Naiwa · Think",
+          "cindy-dream": "Naidan · Andi",
+          "cindy-whisper": "Naiwa · Laugh",
+          "cindy-night-glance": "Naicha",
+          "cindy-scarlet-stroll": "Naiwa · Stance",
+          "cindy-neon": "Naishu",
+          "cindy-prism": "Naiji",
           "night-launch": "夜空への飛翔",
           "silent-orbits": "静かな軌道",
           "dune-dawn": "砂丘の夜明け",
@@ -2327,44 +2327,44 @@
       "skinAnimationAria": "{{skin}} のプレビューアニメーションを切り替え",
       "skins": {
         "cindy": {
-          "name": "Cindy",
-          "description": "Cindy 本人。実行中のタスクをしっかり見守ります。"
+          "name": "Naiwa · Laugh",
+          "description": "元のミーム画像。顔や目は描き変えていません。"
         },
         "blackcat": {
-          "name": "黒猫",
-          "description": "落ち着いた黒猫。暗いノッチの中でも黄色い瞳がよく目立ちます。"
+          "name": "Naigou",
+          "description": "元のミーム画像。顔や目は描き変えていません。"
         },
         "pululu": {
-          "name": "Pululu",
-          "description": "TapFamily の落ち着いた守り役。丸い頭とまっすぐな優しさで、荒れがちなタスクも支えます。"
+          "name": "Naidan",
+          "description": "元のミーム画像。顔や目は描き変えていません。"
         },
         "tarara": {
-          "name": "Tarara",
-          "description": "TapFamily の好奇心いっぱいな冒険家。未知の作業にも勢いよく飛び込む元気担当です。"
+          "name": "Nailong",
+          "description": "元のミーム画像。顔や目は描き変えていません。"
         },
         "boli": {
-          "name": "Boli",
-          "description": "軽く跳ねるピンクの Boli。Agent Island を少しやわらかく、軽快な雰囲気にします。"
+          "name": "Naidan · Andi",
+          "description": "元のミーム画像。顔や目は描き変えていません。"
         },
         "whitesnow": {
-          "name": "アップルガール",
-          "description": "『Flash Party』のりんご頭の女子高生ファイター。進行中のタスクに明るい勢いを足します。"
+          "name": "Naiji",
+          "description": "元のミーム画像。顔や目は描き変えていません。"
         },
         "annie": {
-          "name": "Annie",
-          "description": "『Heartopia』のあたたかなタウンガイド。完了通知までやさしく見守ってくれる存在です。"
+          "name": "Naiwa · Peek",
+          "description": "元のミーム画像。顔や目は描き変えていません。"
         },
         "chaku": {
-          "name": "Chaku",
-          "description": "Iser から来た明るい目の相棒。注意が必要なタスクをしっかり見守ります。"
+          "name": "Naiwa · Think",
+          "description": "元のミーム画像。顔や目は描き変えていません。"
         },
         "muffin": {
-          "name": "Muffin",
-          "description": "やわらかなブルーグレーの相棒。実行中のタスクを軽やかで親しみやすく見せます。"
+          "name": "Naicha",
+          "description": "元のミーム画像。顔や目は描き変えていません。"
         },
         "erika": {
-          "name": "Erika",
-          "description": "三日月の髪飾りをつけた Erika。温かみのある茶色の瞳で、長いタスクに静かに寄り添います。"
+          "name": "Naishu",
+          "description": "元のミーム画像。顔や目は描き変えていません。"
         }
       },
       "soundEvents": {

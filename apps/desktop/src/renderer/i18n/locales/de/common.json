@@ -2187,14 +2187,14 @@
         "nonePreview": "Keine",
         "options": {
           "none": "Keine",
-          "cindy-window": "Cindy · Begleitung am Fenster",
-          "cindy-studio": "Cindy · Zukunftsatelier",
-          "cindy-dream": "Cindy · Traumreise",
-          "cindy-whisper": "Cindy · Flüstern",
-          "cindy-night-glance": "Cindy · Nächtlicher Blick",
-          "cindy-scarlet-stroll": "Cindy · Scharlachroter Spaziergang",
-          "cindy-neon": "Cindy · Neonsilhouette",
-          "cindy-prism": "Cindy · Prismensplitter",
+          "cindy-window": "Naiwa · Peek",
+          "cindy-studio": "Naiwa · Think",
+          "cindy-dream": "Naidan · Andi",
+          "cindy-whisper": "Naiwa · Laugh",
+          "cindy-night-glance": "Naicha",
+          "cindy-scarlet-stroll": "Naiwa · Stance",
+          "cindy-neon": "Naishu",
+          "cindy-prism": "Naiji",
           "night-launch": "Nächtlicher Start",
           "silent-orbits": "Stille Umlaufbahnen",
           "dune-dawn": "Dünen im Morgengrauen",
@@ -2357,44 +2357,44 @@
       "skinAnimationAria": "Animationsvorschau für {{skin}} umschalten",
       "skins": {
         "cindy": {
-          "name": "Cindy",
-          "description": "Cindy selbst behält jede Ausführung im Blick."
+          "name": "Naiwa · Laugh",
+          "description": "Originales Meme-Bild; Gesicht und Augen bleiben unverändert."
         },
         "blackcat": {
-          "name": "Black Cat",
-          "description": "Eine gelassene schwarze Katze, deren gelbe Augen sich scharf von der dunklen Notch abheben."
+          "name": "Naigou",
+          "description": "Originales Meme-Bild; Gesicht und Augen bleiben unverändert."
         },
         "pululu": {
-          "name": "Pululu",
-          "description": "TapFamilys ruhiger kleiner Wächter: rundköpfig, aufrichtig und bereit, unordentliche Aufgaben zu bewältigen."
+          "name": "Naidan",
+          "description": "Originales Meme-Bild; Gesicht und Augen bleiben unverändert."
         },
         "tarara": {
-          "name": "Tarara",
-          "description": "TapFamilys unermüdlicher Entdecker, neugierig genug, um mit deiner Aufgabe in unbekanntes Terrain vorzustoßen."
+          "name": "Nailong",
+          "description": "Originales Meme-Bild; Gesicht und Augen bleiben unverändert."
         },
         "boli": {
-          "name": "Boli",
-          "description": "Ein rosafarbener Boli-Begleiter mit leichtem Schwung und klarer Silhouette für eine sanftere Inselstimmung."
+          "name": "Naidan · Andi",
+          "description": "Originales Meme-Bild; Gesicht und Augen bleiben unverändert."
         },
         "whitesnow": {
-          "name": "Apple Girl",
-          "description": "Der apfelköpfige High-School-Kämpfer von Flash Party, der den Laufaufgaben kraftvolle Energie verleiht."
+          "name": "Naiji",
+          "description": "Originales Meme-Bild; Gesicht und Augen bleiben unverändert."
         },
         "annie": {
-          "name": "Annie",
-          "description": "Der herzliche Stadtführer von Heartopia, der selbst Benachrichtigungen über erledigte Aufgaben etwas sanfter macht."
+          "name": "Naiwa · Peek",
+          "description": "Originales Meme-Bild; Gesicht und Augen bleiben unverändert."
         },
         "chaku": {
-          "name": "Chaku",
-          "description": "Isers aufgeweckter Begleiter, abgestimmt auf Momente, in denen eine Aufgabe deine Aufmerksamkeit braucht."
+          "name": "Naiwa · Think",
+          "description": "Originales Meme-Bild; Gesicht und Augen bleiben unverändert."
         },
         "muffin": {
-          "name": "Muffin",
-          "description": "Ein sanfter blaugrauer Begleiter, der laufenden Aufgaben eine leichte, verspielte Note verleiht."
+          "name": "Naicha",
+          "description": "Originales Meme-Bild; Gesicht und Augen bleiben unverändert."
         },
         "erika": {
-          "name": "Erika",
-          "description": "Erika mit ihrer Halbmond-Haarspange – warme braune Augen, bei langen Durchläufen ruhig und konzentriert."
+          "name": "Naishu",
+          "description": "Originales Meme-Bild; Gesicht und Augen bleiben unverändert."
         }
       },
       "soundEvents": {

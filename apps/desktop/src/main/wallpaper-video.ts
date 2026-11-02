@@ -49,7 +49,16 @@ async function ensureWallpaperAsset(
   if (!isOfficialWallpaper(id)) throwIpcError('INVALID_PARAMS', 'Unsupported wallpaper');
   const entry = manifest[id];
   if (entry.delivery !== 'cdn') return null;
-  const asset = kind === 'image' ? entry.image : 'sha256' in entry ? entry : null;
+  // This fork's catalog can contain only still images; video fields are optional.
+  const asset: Asset | null =
+    kind === 'image'
+      ? entry.image
+      : 'sha256' in entry &&
+          typeof entry.sha256 === 'string' &&
+          'bytes' in entry &&
+          typeof entry.bytes === 'number'
+        ? { sha256: entry.sha256, bytes: entry.bytes }
+        : null;
   if (!asset) return null;
   const ext = kind === 'image' ? '.webp' : '.mp4';
   const key = asset.sha256 + ext;

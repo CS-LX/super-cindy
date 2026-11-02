@@ -2187,14 +2187,14 @@
         "nonePreview": "None",
         "options": {
           "none": "None",
-          "cindy-window": "Cindy · Window Companion",
-          "cindy-studio": "Cindy · Future Atelier",
-          "cindy-dream": "Cindy · Dream Voyage",
-          "cindy-whisper": "Cindy · Whisper",
-          "cindy-night-glance": "Cindy · Night Glance",
-          "cindy-scarlet-stroll": "Cindy · Scarlet Stroll",
-          "cindy-neon": "Cindy · Neon Silhouette",
-          "cindy-prism": "Cindy · Prism Shards",
+          "cindy-window": "Naiwa · Peek",
+          "cindy-studio": "Naiwa · Think",
+          "cindy-dream": "Naidan · Andi",
+          "cindy-whisper": "Naiwa · Laugh",
+          "cindy-night-glance": "Naicha",
+          "cindy-scarlet-stroll": "Naiwa · Stance",
+          "cindy-neon": "Naishu",
+          "cindy-prism": "Naiji",
           "night-launch": "Night Launch",
           "silent-orbits": "Silent Orbits",
           "dune-dawn": "Dune Dawn",
@@ -2357,44 +2357,44 @@
       "skinAnimationAria": "Switch {{skin}} animation preview",
       "skins": {
         "cindy": {
-          "name": "Cindy",
-          "description": "Cindy herself, keeping an eye on every run."
+          "name": "Naiwa · Laugh",
+          "description": "Original meme artwork, with its face and eyes unchanged."
         },
         "blackcat": {
-          "name": "Black Cat",
-          "description": "A composed black cat whose yellow eyes stay sharp against the dark notch."
+          "name": "Naigou",
+          "description": "Original meme artwork, with its face and eyes unchanged."
         },
         "pululu": {
-          "name": "Pululu",
-          "description": "TapFamily's calm little guardian: round-headed, sincere, and ready to steady messy tasks."
+          "name": "Naidan",
+          "description": "Original meme artwork, with its face and eyes unchanged."
         },
         "tarara": {
-          "name": "Tarara",
-          "description": "TapFamily's tireless explorer, curious enough to charge with your task into unknown territory."
+          "name": "Nailong",
+          "description": "Original meme artwork, with its face and eyes unchanged."
         },
         "boli": {
-          "name": "Boli",
-          "description": "A pink Boli companion with a light bounce and clean silhouette for a softer island mood."
+          "name": "Naidan · Andi",
+          "description": "Original meme artwork, with its face and eyes unchanged."
         },
         "whitesnow": {
-          "name": "Apple Girl",
-          "description": "The apple-headed high school fighter from Flash Party, adding punchy energy to running tasks."
+          "name": "Naiji",
+          "description": "Original meme artwork, with its face and eyes unchanged."
         },
         "annie": {
-          "name": "Annie",
-          "description": "Heartopia's warm town guide, making even completed-task alerts feel a little gentler."
+          "name": "Naiwa · Peek",
+          "description": "Original meme artwork, with its face and eyes unchanged."
         },
         "chaku": {
-          "name": "Chaku",
-          "description": "Iser's bright-eyed companion, tuned for moments when a task needs your attention."
+          "name": "Naiwa · Think",
+          "description": "Original meme artwork, with its face and eyes unchanged."
         },
         "muffin": {
-          "name": "Muffin",
-          "description": "A soft blue-gray companion that keeps running tasks feeling light and playful."
+          "name": "Naicha",
+          "description": "Original meme artwork, with its face and eyes unchanged."
         },
         "erika": {
-          "name": "Erika",
-          "description": "Erika with her crescent hairpin — warm brown eyes, quietly focused on long runs."
+          "name": "Naishu",
+          "description": "Original meme artwork, with its face and eyes unchanged."
         }
       },
       "soundEvents": {

@@ -2222,14 +2222,14 @@
         "nonePreview": "Aucun",
         "options": {
           "none": "Aucun",
-          "cindy-window": "Cindy · Compagne à la fenêtre",
-          "cindy-studio": "Cindy · Atelier du futur",
-          "cindy-dream": "Cindy · Voyage onirique",
-          "cindy-whisper": "Cindy · Murmure",
-          "cindy-night-glance": "Cindy · Regard nocturne",
-          "cindy-scarlet-stroll": "Cindy · Promenade écarlate",
-          "cindy-neon": "Cindy · Silhouette néon",
-          "cindy-prism": "Cindy · Éclats de prisme",
+          "cindy-window": "Naiwa · Peek",
+          "cindy-studio": "Naiwa · Think",
+          "cindy-dream": "Naidan · Andi",
+          "cindy-whisper": "Naiwa · Laugh",
+          "cindy-night-glance": "Naicha",
+          "cindy-scarlet-stroll": "Naiwa · Stance",
+          "cindy-neon": "Naishu",
+          "cindy-prism": "Naiji",
           "night-launch": "Lancement nocturne",
           "silent-orbits": "Orbites silencieuses",
           "dune-dawn": "Aube sur les dunes",
@@ -2392,44 +2392,44 @@
       "skinAnimationAria": "Changer l'aperçu de l'animation {{skin}}",
       "skins": {
         "cindy": {
-          "name": "Cindy",
-          "description": "Cindy en personne, qui garde un œil sur chaque exécution."
+          "name": "Naiwa · Laugh",
+          "description": "Image originale du mème, visage et yeux inchangés."
         },
         "blackcat": {
-          "name": "Chat noir",
-          "description": "Un chat noir imperturbable dont les yeux jaunes restent perçants sur l'encoche sombre."
+          "name": "Naigou",
+          "description": "Image originale du mème, visage et yeux inchangés."
         },
         "pululu": {
-          "name": "Pululu",
-          "description": "Le petit gardien serein de TapFamily : tête ronde, sincère et prêt à remettre de l'ordre dans les tâches compliquées."
+          "name": "Naidan",
+          "description": "Image originale du mème, visage et yeux inchangés."
         },
         "tarara": {
-          "name": "Tarara",
-          "description": "L'explorateur infatigable de TapFamily, assez curieux pour foncer avec votre tâche en territoire inconnu."
+          "name": "Nailong",
+          "description": "Image originale du mème, visage et yeux inchangés."
         },
         "boli": {
-          "name": "Boli",
-          "description": "Un compagnon Boli rose au léger rebond et à la silhouette épurée, pour une ambiance plus douce."
+          "name": "Naidan · Andi",
+          "description": "Image originale du mème, visage et yeux inchangés."
         },
         "whitesnow": {
-          "name": "Apple Girl",
-          "description": "La combattante lycéenne à tête de pomme de Flash Party, qui donne du punch aux tâches en cours."
+          "name": "Naiji",
+          "description": "Image originale du mème, visage et yeux inchangés."
         },
         "annie": {
-          "name": "Annie",
-          "description": "La chaleureuse guide de la ville de Heartopia, qui rend même les alertes de tâche terminée un peu plus douces."
+          "name": "Naiwa · Peek",
+          "description": "Image originale du mème, visage et yeux inchangés."
         },
         "chaku": {
-          "name": "Chaku",
-          "description": "Le compagnon aux yeux brillants d'Iser, idéal pour les moments où une tâche requiert votre attention."
+          "name": "Naiwa · Think",
+          "description": "Image originale du mème, visage et yeux inchangés."
         },
         "muffin": {
-          "name": "Muffin",
-          "description": "Un doux compagnon gris-bleu qui garde aux tâches en cours une touche légère et ludique."
+          "name": "Naicha",
+          "description": "Image originale du mème, visage et yeux inchangés."
         },
         "erika": {
-          "name": "Erika",
-          "description": "Erika et sa barrette en croissant de lune : yeux bruns chaleureux, discrètement concentrée sur les longues exécutions."
+          "name": "Naishu",
+          "description": "Image originale du mème, visage et yeux inchangés."
         }
       },
       "soundEvents": {

@@ -2157,14 +2157,14 @@
         "nonePreview": "없음",
         "options": {
           "none": "없음",
-          "cindy-window": "Cindy · 창가의 휴식",
-          "cindy-studio": "Cindy · 미래의 아틀리에",
-          "cindy-dream": "Cindy · 꿈속 여행",
-          "cindy-whisper": "Cindy · 속삭임",
-          "cindy-night-glance": "Cindy · 밤의 눈길",
-          "cindy-scarlet-stroll": "Cindy · 붉은 밤 산책",
-          "cindy-neon": "Cindy · 네온 옆모습",
-          "cindy-prism": "Cindy · 프리즘 조각",
+          "cindy-window": "Naiwa · Peek",
+          "cindy-studio": "Naiwa · Think",
+          "cindy-dream": "Naidan · Andi",
+          "cindy-whisper": "Naiwa · Laugh",
+          "cindy-night-glance": "Naicha",
+          "cindy-scarlet-stroll": "Naiwa · Stance",
+          "cindy-neon": "Naishu",
+          "cindy-prism": "Naiji",
           "night-launch": "밤하늘로의 비상",
           "silent-orbits": "고요한 궤도",
           "dune-dawn": "모래 언덕의 새벽",
@@ -2327,44 +2327,44 @@
       "skinAnimationAria": "{{skin}} 미리보기 애니메이션 전환",
       "skins": {
         "cindy": {
-          "name": "Cindy",
-          "description": "Cindy 본인. 실행 중인 작업을 지켜봅니다."
+          "name": "Naiwa · Laugh",
+          "description": "얼굴과 눈을 바꾸지 않은 원본 밈 이미지입니다."
         },
         "blackcat": {
-          "name": "검은 고양이",
-          "description": "차분한 검은 고양이. 어두운 노치 속에서도 노란 눈이 또렷합니다."
+          "name": "Naigou",
+          "description": "얼굴과 눈을 바꾸지 않은 원본 밈 이미지입니다."
         },
         "pululu": {
-          "name": "Pululu",
-          "description": "TapFamily의 차분한 수호 담당. 동그란 머리와 진심 어린 태도로 어수선한 작업도 지켜줍니다."
+          "name": "Naidan",
+          "description": "얼굴과 눈을 바꾸지 않은 원본 밈 이미지입니다."
         },
         "tarara": {
-          "name": "Tarara",
-          "description": "TapFamily의 호기심 많은 탐험가. 낯선 작업에도 힘 있게 뛰어드는 에너지 담당입니다."
+          "name": "Nailong",
+          "description": "얼굴과 눈을 바꾸지 않은 원본 밈 이미지입니다."
         },
         "boli": {
-          "name": "Boli",
-          "description": "가볍게 통통 뛰는 분홍 Boli. Agent Island를 더 부드럽고 경쾌한 분위기로 만듭니다."
+          "name": "Naidan · Andi",
+          "description": "얼굴과 눈을 바꾸지 않은 원본 밈 이미지입니다."
         },
         "whitesnow": {
-          "name": "Apple Girl",
-          "description": "Flash Party의 사과 머리 여고생 파이터. 진행 중인 작업에 톡톡 튀는 에너지를 더합니다."
+          "name": "Naiji",
+          "description": "얼굴과 눈을 바꾸지 않은 원본 밈 이미지입니다."
         },
         "annie": {
-          "name": "Annie",
-          "description": "Heartopia의 따뜻한 타운 가이드. 완료 알림까지 포근하게 느껴지도록 지켜봐 줍니다."
+          "name": "Naiwa · Peek",
+          "description": "얼굴과 눈을 바꾸지 않은 원본 밈 이미지입니다."
         },
         "chaku": {
-          "name": "Chaku",
-          "description": "Iser에서 온 밝은 눈의 동료. 주의가 필요한 작업을 또렷하게 지켜봅니다."
+          "name": "Naiwa · Think",
+          "description": "얼굴과 눈을 바꾸지 않은 원본 밈 이미지입니다."
         },
         "muffin": {
-          "name": "Muffin",
-          "description": "부드러운 블루 그레이 분위기의 동료. 실행 중인 작업을 더 가볍고 친근하게 보여줍니다."
+          "name": "Naicha",
+          "description": "얼굴과 눈을 바꾸지 않은 원본 밈 이미지입니다."
         },
         "erika": {
-          "name": "Erika",
-          "description": "초승달 머리 장식을 한 Erika. 따뜻한 갈색 눈으로 긴 작업을 조용히 함께합니다."
+          "name": "Naishu",
+          "description": "얼굴과 눈을 바꾸지 않은 원본 밈 이미지입니다."
         }
       },
       "soundEvents": {

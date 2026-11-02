@@ -2157,14 +2157,14 @@
         "nonePreview": "無",
         "options": {
           "none": "無",
-          "cindy-window": "Cindy · 倚窗相伴",
-          "cindy-studio": "Cindy · 未來工坊",
-          "cindy-dream": "Cindy · 夢遊",
-          "cindy-whisper": "Cindy · 私語",
-          "cindy-night-glance": "Cindy · 夜闌回眸",
-          "cindy-scarlet-stroll": "Cindy · 赤夜緩步",
-          "cindy-neon": "Cindy · 霓裳側影",
-          "cindy-prism": "Cindy · 稜鏡碎玉",
+          "cindy-window": "奶蛙 · 探头",
+          "cindy-studio": "奶蛙 · 思考",
+          "cindy-dream": "奶蛋 · 安迪",
+          "cindy-whisper": "奶蛙 · 捧腹大笑",
+          "cindy-night-glance": "奶茶",
+          "cindy-scarlet-stroll": "奶蛙 · 摆架势",
+          "cindy-neon": "奶鼠",
+          "cindy-prism": "奶鸡",
           "night-launch": "夜航流光",
           "silent-orbits": "星河靜轉",
           "dune-dawn": "瀚海晨光",
@@ -2327,44 +2327,44 @@
       "skinAnimationAria": "切換{{skin}}之先覽動畫",
       "skins": {
         "cindy": {
-          "name": "Cindy",
-          "description": "本姑娘親自登場，每回行事，皆替君盯著。"
+          "name": "奶蛙 · 捧腹大笑",
+          "description": "用其原圖，不改眉目。"
         },
         "blackcat": {
-          "name": "黑貓",
-          "description": "沉穩黑貓，黃睛於暗色劉海中分外醒目，宜久守差事。"
+          "name": "奶狗",
+          "description": "用其原圖，不改眉目。"
         },
         "pululu": {
-          "name": "噗嚕嚕",
-          "description": "TapFamily 中理性之守護者：圓首可擋雨，亦能穩住偏離之差事。"
+          "name": "奶蛋",
+          "description": "用其原圖，不改眉目。"
         },
         "tarara": {
-          "name": "嗒啦啦",
-          "description": "TapFamily 首屈一指之不倦探險家，好奇滿懷，宜伴差事一路闖入未知之境。"
+          "name": "奶龙",
+          "description": "用其原圖，不改眉目。"
         },
         "boli": {
-          "name": "波利",
-          "description": "粉色波利，輕躍於鍵盤之側；欲令靈動島更添軟萌，擇之可也。"
+          "name": "奶蛋 · 安迪",
+          "description": "用其原圖，不改眉目。"
         },
         "whitesnow": {
-          "name": "蘋果妹",
-          "description": "《派對之星》中蘋果頭之女高中生，攜格鬥派對之朝氣，入每一方行之差事。"
+          "name": "奶鸡",
+          "description": "用其原圖，不改眉目。"
         },
         "annie": {
-          "name": "安妮",
-          "description": "《心動小鎮》最暖之嚮導，小鎮中安心之港，令畢事之告亦添溫柔。"
+          "name": "奶蛙 · 探头",
+          "description": "用其原圖，不改眉目。"
         },
         "chaku": {
-          "name": "Chaku",
-          "description": "伊瑟所攜靈動之伴，黃睛明亮，宜盯每一須留意之動作。"
+          "name": "奶蛙 · 思考",
+          "description": "用其原圖，不改眉目。"
         },
         "muffin": {
-          "name": "麥芬",
-          "description": "新來之麥芬，藍灰柔和，令方行之差事更添輕巧可愛。"
+          "name": "奶茶",
+          "description": "用其原圖，不改眉目。"
         },
         "erika": {
-          "name": "Erika",
-          "description": "戴月牙髮飾之 Erika，暖棕之眸靜而專注，宜伴長差事徐徐而行。"
+          "name": "奶鼠",
+          "description": "用其原圖，不改眉目。"
         }
       },
       "soundEvents": {

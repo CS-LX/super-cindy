@@ -2157,14 +2157,14 @@
         "nonePreview": "無",
         "options": {
           "none": "無",
-          "cindy-window": "Cindy · 窗邊陪伴",
-          "cindy-studio": "Cindy · 未來工作室",
-          "cindy-dream": "Cindy · 夢境漫遊",
-          "cindy-whisper": "Cindy · 悄悄話",
-          "cindy-night-glance": "Cindy · 夜色回眸",
-          "cindy-scarlet-stroll": "Cindy · 赤夜漫步",
-          "cindy-neon": "Cindy · 霓光側影",
-          "cindy-prism": "Cindy · 稜鏡碎光",
+          "cindy-window": "奶蛙 · 探头",
+          "cindy-studio": "奶蛙 · 思考",
+          "cindy-dream": "奶蛋 · 安迪",
+          "cindy-whisper": "奶蛙 · 捧腹大笑",
+          "cindy-night-glance": "奶茶",
+          "cindy-scarlet-stroll": "奶蛙 · 摆架势",
+          "cindy-neon": "奶鼠",
+          "cindy-prism": "奶鸡",
           "night-launch": "夜航流光",
           "silent-orbits": "靜謐星軌",
           "dune-dawn": "沙海晨光",
@@ -2327,44 +2327,44 @@
       "skinAnimationAria": "切換{{skin}}的預覽動畫",
       "skins": {
         "cindy": {
-          "name": "Cindy",
-          "description": "Cindy 本人出鏡，陪你盯著每一次執行。"
+          "name": "奶蛙 · 捧腹大笑",
+          "description": "原圖出鏡，保留原本的五官和眼睛。"
         },
         "blackcat": {
-          "name": "黑貓",
-          "description": "沉穩的黑貓，黃色眼睛在暗色劉海裡格外醒目，適合長時間盯任務。"
+          "name": "奶狗",
+          "description": "原圖出鏡，保留原本的五官和眼睛。"
         },
         "pululu": {
-          "name": "噗嚕嚕",
-          "description": "TapFamily 裡的理性守護擔當：圓腦袋負責擋雨，也負責把跑偏的任務穩住。"
+          "name": "奶蛋",
+          "description": "原圖出鏡，保留原本的五官和眼睛。"
         },
         "tarara": {
-          "name": "嗒啦啦",
-          "description": "TapFamily 的頭號肝帝探險家，好奇心拉滿，適合陪任務一路衝進未知區。"
+          "name": "奶龙",
+          "description": "原圖出鏡，保留原本的五官和眼睛。"
         },
         "boli": {
-          "name": "波利",
-          "description": "粉色波利，輕快地在鍵盤邊蹦躂；想讓靈動島更軟萌一點就選它。"
+          "name": "奶蛋 · 安迪",
+          "description": "原圖出鏡，保留原本的五官和眼睛。"
         },
         "whitesnow": {
-          "name": "蘋果妹",
-          "description": "《派對之星》的蘋果頭女高中生，把格鬥派對裡的活力帶到每個執行任務上。"
+          "name": "奶鸡",
+          "description": "原圖出鏡，保留原本的五官和眼睛。"
         },
         "annie": {
-          "name": "安妮",
-          "description": "《心動小鎮》最暖嚮導，小鎮裡的安心港灣，讓完成提示也變得溫柔。"
+          "name": "奶蛙 · 探头",
+          "description": "原圖出鏡，保留原本的五官和眼睛。"
         },
         "chaku": {
-          "name": "Chaku",
-          "description": "伊瑟帶來的靈動夥伴，明亮的黃色眼睛適合盯住每一次需要關注的動作。"
+          "name": "奶蛙 · 思考",
+          "description": "原圖出鏡，保留原本的五官和眼睛。"
         },
         "muffin": {
-          "name": "麥芬",
-          "description": "新來的麥芬角色，帶著柔和的藍灰色調，讓執行中的任務更輕巧可愛。"
+          "name": "奶茶",
+          "description": "原圖出鏡，保留原本的五官和眼睛。"
         },
         "erika": {
-          "name": "Erika",
-          "description": "戴月牙髮飾的 Erika，暖棕色眼神安靜又專注，適合陪長任務慢慢跑。"
+          "name": "奶鼠",
+          "description": "原圖出鏡，保留原本的五官和眼睛。"
         }
       },
       "soundEvents": {
