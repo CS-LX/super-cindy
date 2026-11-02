@@ -10,6 +10,20 @@
 !include "${BUILD_RESOURCES_DIR}\winget-shortcuts.nsh"
 !include "${BUILD_RESOURCES_DIR}\installer-directory.nsh"
 
+; A preserved shortcut and an unchanged EXE path can retain a previous icon at
+; one Shell size even when every PE icon frame has changed. Notify each item,
+; including open Explorer folders, and finish delivery before installation exits.
+; 0x2000 = SHCNE_UPDATEITEM; 0x1005 = SHCNF_PATHW | SHCNF_FLUSH.
+!macro cindyRefreshIconItem ITEM_PATH
+  ${If} ${FileExists} "${ITEM_PATH}"
+    System::Call 'shell32::SHChangeNotify(i 0x2000, i 0x1005, w "${ITEM_PATH}", p 0)'
+  ${EndIf}
+!macroend
+
+!macro cindyRefreshShortcutIcon DESTINATION NAME
+  !insertmacro cindyRefreshIconItem "${DESTINATION}"
+!macroend
+
 !ifndef BUILD_UNINSTALLER
 !macro customInit
   !insertmacro cindyDirectoryInit
@@ -82,9 +96,13 @@
   WriteRegStr HKCU "Software\Classes\SystemFileAssociations\.xdtshare\shell\${PRODUCT_FILENAME}" "Icon" "$INSTDIR\${APP_EXECUTABLE_FILENAME},0"
   WriteRegStr HKCU "Software\Classes\SystemFileAssociations\.xdtshare\shell\${PRODUCT_FILENAME}\command" "" '"$INSTDIR\${APP_EXECUTABLE_FILENAME}" --open-share-file "%1"'
 
-  ; 广播 SHCNE_ASSOCCHANGED 让 Explorer 失效图标缓存，新图标无需注销/重启就能生效
-  ; 0x08000000 = SHCNE_ASSOCCHANGED, 0 = SHCNF_IDLIST
-  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
+  !insertmacro cindyRefreshIconItem "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+  !insertmacro cindyRefreshIconItem "$INSTDIR\uninstallerIcon.ico"
+  !insertmacro cindyUpgradeLinks cindyRefreshShortcutIcon
+  ; SHCNE_UPDATEDIR refreshes an Explorer window already showing the install folder.
+  System::Call 'shell32::SHChangeNotify(i 0x1000, i 0x1005, w "$INSTDIR", p 0)'
+  ; Keep the existing association notification, with synchronous delivery.
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0x1000, p 0, p 0)'
 !macroend
 
 ; Electron registers the per-user login item under the executable basename.

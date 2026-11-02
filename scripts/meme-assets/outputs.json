@@ -101,7 +101,7 @@
   },
   "apps/desktop/resources/icon.png": {
     "source": "naidan",
-    "sha256": "11d04b611e49a21e10def8a905b80d7a021cf00af78decf81d78ffea63fda63c"
+    "sha256": "ff977a88348331efb7d8f2fccfed7c3946535252fce56dbf40f50f8a8f3ab40f"
   },
   "apps/desktop/resources/icon-dock.png": {
     "source": "naidan",
@@ -113,7 +113,7 @@
   },
   "apps/desktop/resources/icon.ico": {
     "source": "naidan",
-    "sha256": "9dce2b922ace93a1a80931d91f743096ef1d3b3d0b12a6acacc8fe75b002ddef"
+    "sha256": "7f284c6397fa289b4ec5f1ec6d6a9dc78074ae9fef83c5a1606fd1eea12bcf79"
   },
   "apps/desktop/resources/icon.icns": {
     "source": "naidan",
@@ -121,11 +121,11 @@
   },
   "apps/desktop/cindy-updater/src-tauri/icons/icon.png": {
     "source": "naidan",
-    "sha256": "11d04b611e49a21e10def8a905b80d7a021cf00af78decf81d78ffea63fda63c"
+    "sha256": "ff977a88348331efb7d8f2fccfed7c3946535252fce56dbf40f50f8a8f3ab40f"
   },
   "apps/desktop/cindy-updater/src-tauri/icons/icon.ico": {
     "source": "naidan",
-    "sha256": "9dce2b922ace93a1a80931d91f743096ef1d3b3d0b12a6acacc8fe75b002ddef"
+    "sha256": "7f284c6397fa289b4ec5f1ec6d6a9dc78074ae9fef83c5a1606fd1eea12bcf79"
   },
   "apps/mobile/assets/icon.png": {
     "source": "naidan",

@@ -16,6 +16,8 @@ python scripts/meme-assets/rebuild.py --font C:/Windows/Fonts/msyhbd.ttc
 
 生成器保留现有素材尺寸，更新伙伴包头像校验值与壁纸清单，并将所有输出及 SHA-256 写入 `outputs.json`。其他平台可通过 `--font` 指定可用的中文粗体字体；字标排版会随字体变化。
 
+Windows 图标复用仓库的 `generate-win-ico.mjs`（需要已安装 Node 工作区依赖），从同一奶蛋母版生成 16 / 24 / 32 / 48 / 64 / 128 / 256 全部尺寸的 32 位 BMP 条目及透明掩码，同时同步主程序和更新器的 PNG / ICO。安装器在覆盖 EXE 后对程序、已有快捷方式和安装目录发送 Shell 刷新通知，避免 Explorer 在某一图标尺寸继续显示旧缓存。
+
 这些 meme 图片是第三方参考素材，不主张原创或通用再分发许可，也不将仓库的软件许可证扩张到这些图片。来源说明见 `SOURCES.json`；原项目的软件版权与许可声明继续保留。
 
 菜单栏、模型来源标记和手机小组件的单色图标采用奶蛋原图的轮廓。手机图标和原生小组件资源属于 runtime fingerprint 输入；这部分需要新的原生安装包，不能仅靠 OTA 更新。此次只构建和安装 Windows Global 版，未发布移动端更新。

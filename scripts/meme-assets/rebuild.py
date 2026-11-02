@@ -12,6 +12,7 @@ import hashlib
 import io
 import json
 import re
+import subprocess
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps
@@ -68,8 +69,6 @@ def save(im: Image.Image, path: Path, source: str) -> None:
         im.save(path, lossless=True, method=6)
     elif ext in (".jpg", ".jpeg"):
         im.convert("RGB").save(path, quality=95, subsampling=0)
-    elif ext == ".ico":
-        im.save(path, sizes=[(n, n) for n in (16, 24, 32, 48, 64, 128, 256)])
     else:
         im.save(path)
     record(path, source)
@@ -152,11 +151,16 @@ def main() -> None:
         }
         manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8", newline="\n")
 
-    icons = [DESKTOP / f"resources/{name}" for name in ["icon.png", "icon-dock.png", "icon-master-1024.png", "icon.ico", "icon.icns"]]
-    icons += [DESKTOP / f"cindy-updater/src-tauri/icons/icon.{ext}" for ext in ["png", "ico"]]
+    icons = [DESKTOP / f"resources/{name}" for name in ["icon-dock.png", "icon-master-1024.png", "icon.icns"]]
     icons += [MOBILE / name for name in ["icon.png", "favicon.png", "splash-icon.png", "android-icon-foreground.png"]]
     for path in icons:
         save(rounded_icon(dimensions(path)), path, "naidan")
+    # Use the existing Windows encoder for all seven 32-bit BMP frames and their
+    # transparency masks. Pillow's default PNG-in-ICO output changes that contract.
+    subprocess.run(["node", str(DESKTOP / "scripts/generate-win-ico.mjs")], check=True)
+    for directory in [DESKTOP / "resources", DESKTOP / "cindy-updater/src-tauri/icons"]:
+        for ext in ["png", "ico"]:
+            record(directory / f"icon.{ext}", "naidan")
     # The OS's monochrome icon uses the egg's actual silhouette, without a solid square.
     monochrome = MOBILE / "android-icon-monochrome.png"
     icon = fit("naidan", dimensions(monochrome), margin=.18)
@@ -253,7 +257,6 @@ def main() -> None:
     # Video wallpaper IDs were already retired upstream. Still replace their legacy payloads
     # so an old saved URL or a future re-enable cannot reveal the original Cindy artwork.
     for stem in ["cindy-window", "cindy-studio", "cindy-dream"]:
-        import subprocess
         path = ART / f"wallpapers/{stem}.mp4"
         subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-loop", "1", "-i", str(path.with_suffix(".webp")), "-t", "2", "-vf", "scale=1280:800", "-r", "12", "-c:v", "libx264", "-crf", "23", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(path)], check=True)
         record(path, wallpaper_names[stem] + " (still video, no character animation)")

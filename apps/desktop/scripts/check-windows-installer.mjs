@@ -16,6 +16,44 @@ const { build, Platform, Arch } = require('app-builder-lib');
 
 if (process.platform !== 'win32')
   throw new Error('This check requires Windows and the NSIS toolchain.');
+
+// 2026-11-02 fork regression: Pillow's default ICO encoder silently replaced
+// the production DIB frames with PNG entries. Exercise the shipped resource,
+// since compiling NSIS alone does not check all Shell sizes or transparency.
+const iconBytes = await fs.readFile(path.join(resources, 'icon.ico'));
+const iconSizes = [16, 24, 32, 48, 64, 128, 256];
+assert.equal(iconBytes.readUInt16LE(0), 0);
+assert.equal(iconBytes.readUInt16LE(2), 1);
+assert.equal(iconBytes.readUInt16LE(4), iconSizes.length);
+for (const [index, size] of iconSizes.entries()) {
+  const entry = 6 + 16 * index;
+  assert.equal(iconBytes[entry] || 256, size);
+  assert.equal(iconBytes[entry + 1] || 256, size);
+  assert.equal(iconBytes.readUInt16LE(entry + 6), 32);
+  const length = iconBytes.readUInt32LE(entry + 8);
+  const offset = iconBytes.readUInt32LE(entry + 12);
+  const maskStride = Math.ceil(size / 32) * 4;
+  assert.equal(length, 40 + size * size * 4 + maskStride * size);
+  assert.ok(offset >= 6 + 16 * iconSizes.length && offset + length <= iconBytes.length);
+  const dib = iconBytes.subarray(offset, offset + length);
+  assert.equal(dib.readUInt32LE(0), 40, `${size}px must be a DIB, not PNG`);
+  assert.equal(dib.readInt32LE(4), size);
+  assert.equal(dib.readInt32LE(8), size * 2);
+  assert.equal(dib.readUInt16LE(14), 32);
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const transparent = dib[40 + (y * size + x) * 4 + 3] < 128;
+      const maskByte = dib[40 + size * size * 4 + y * maskStride + Math.floor(x / 8)];
+      assert.equal(Boolean(maskByte & (0x80 >> (x % 8))), transparent);
+    }
+  }
+}
+assert.deepEqual(
+  await fs.readFile(path.join(desktop, 'cindy-updater/src-tauri/icons/icon.ico')),
+  iconBytes,
+  'The updater and main executable must use the same icon frames',
+);
+console.log('PASS: all seven Windows icon sizes, 32-bit DIBs and transparency masks');
 const root = await fs.mkdtemp(path.join(os.tmpdir(), 'cindy-installer-check-'));
 console.log(`Installer check directory: ${root}`);
 try {
