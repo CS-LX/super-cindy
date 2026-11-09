@@ -2091,8 +2091,9 @@ const config: ForgeConfig = {
     new VitePlugin({
       // Dev keeps all watcher targets in one process. Build them serially at
       // startup so the initial graph does not multiply the same high baseline;
-      // packaged builds retain Forge's normal concurrency.
-      concurrent: isDev ? false : true,
+      // Low-memory personal builds can also opt into serial targets; normal
+      // packaged builds retain Forge's default concurrency.
+      concurrent: !(isDev || process.env.CINDY_SERIAL_BUILD === '1'),
       build: [
         {
           entry: 'src/main/index.ts',
