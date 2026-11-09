@@ -1822,6 +1822,9 @@ if (isWin) {
 
 const config: ForgeConfig = {
   packagerConfig: {
+    // The pinned Electron npm package ships the release checksums. Validate
+    // cached runtimes against them without fetching SHASUMS again for each build.
+    download: { checksums: _require('electron/checksums.json') as Record<string, string> },
     // sharp 的底层 libvips 共享库 (libvips-cpp.dylib / libvips-42.dll /
     // libvips-cpp.so) 在不同平台上的位置不同:
     //   - macOS / Linux: 住在独立的 @img/sharp-libvips-{platform}-{arch}/ 包,
