@@ -1,14 +1,6 @@
+import type { ViewInstance, TextInstance } from 'react-native';
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import {
-  AccessibilityInfo,
-  BackHandler,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  View,
-  useWindowDimensions,
-  type Text as RNText,
-} from "react-native";
+import { AccessibilityInfo, BackHandler, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "@/components/AppText";
 import Svg, { Circle, Path } from "react-native-svg";
 import { useTranslation } from "react-i18next";
@@ -49,6 +41,7 @@ export function RunningTokenRatePopover({
   sessionKey,
   startedAt,
   outputTokens,
+  totalOutputTokens = outputTokens,
   generationDurationMs,
   generationReliable,
   children,
@@ -60,6 +53,7 @@ export function RunningTokenRatePopover({
   sessionKey: string;
   startedAt: number | null;
   outputTokens: number;
+  totalOutputTokens?: number;
   generationDurationMs: number;
   generationReliable: boolean;
   children: ReactNode;
@@ -75,10 +69,10 @@ export function RunningTokenRatePopover({
   const viewport = usePaneViewport();
   const window = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const anchorRef = useRef<View>(null);
-  const triggerRef = useRef<View>(null);
+  const anchorRef = useRef<ViewInstance>(null);
+  const triggerRef = useRef<ViewInstance>(null);
   // Plain Views are not accessibility elements; focus the card's first label.
-  const cardFocusTarget = useRef<RNText>(null);
+  const cardFocusTarget = useRef<TextInstance>(null);
   const [anchor, setAnchor] = useState({ x: 0, y: 0, width: 0, height: 0 });
   const [cardHeight, setCardHeight] = useState(0);
   const measureAnchor = () =>
@@ -346,12 +340,12 @@ export function RunningTokenRatePopover({
               "outputTotal",
               t("session.screen.tokenCount", {
                 tokens:
-                  outputTokens >= 1000
-                    ? `${(outputTokens / 1000).toFixed(1)}k`
-                    : outputTokens,
+                  totalOutputTokens >= 1000
+                    ? `${(totalOutputTokens / 1000).toFixed(1)}k`
+                    : totalOutputTokens,
               }),
             ],
-            ["observedPeak", rateText(samples.length ? history.peak : null)],
+            ["observedPeak", rateText(samples.length || history.peak > 0 ? history.peak : null)],
           ].map(([key, value]) => (
             <View style={styles.metric} key={key}>
               <Text style={styles.label}>{t(`session.screen.${key}`)}</Text>

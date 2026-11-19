@@ -14,7 +14,7 @@ export function useGroupPersonalMask(groupId: string, deviceId: string, enabled:
   const key = `${api.owner}:${deviceId}:${groupId}`;
   const active = useRef(key); active.current = key;
   const mounted = useRef(true), busy = useRef(false), pending = useRef(false), version = useRef(0), authority = useRef(0);
-  const deps = useRef({ act, enabled }); deps.current = { act, enabled };
+  const deps = useRef({ act, enabled, change }); deps.current = { act, enabled, change };
   const queue = useRef(Promise.resolve()), failed = useRef(new Map<string, () => Promise<void>>());
   const operations = useRef(new Map<string, () => Promise<void>>());
   const [data, setData] = useState<{ key: string; state: ChatMaskState | null; mentions: ChatMaskMention[] }>({ key, state: null, mentions: [] });
@@ -69,14 +69,22 @@ export function useGroupPersonalMask(groupId: string, deviceId: string, enabled:
     setError(false); setSaving(false); setConnectionLost(false);
     if (!enabled) { stateRef.current = null; setData({ key, state: null, mentions: [] }); }
   }, [key, enabled]);
+  // What the last read was started for. Opening the screen reads once; afterwards only a
+  // change of the group itself asks again (plus the interval and a return to the foreground).
+  const readFor = useRef<{ reload: typeof reload; change: unknown } | null>(null);
   useEffect(() => {
-    if (!enabled || !focused) return;
+    if (!enabled || !focused) { readFor.current = null; return; }
+    readFor.current = { reload, change: deps.current.change };
     void reload();
     const timer = setInterval(() => void reload(), 15000);
     const subscription = AppState.addEventListener('change', value => { if (value === 'active') void reload(); });
     return () => { clearInterval(timer); subscription.remove(); };
   }, [enabled, focused, reload]);
-  useEffect(() => { if (focused) void reload(); }, [change, focused, reload]);
+  useEffect(() => {
+    if (!focused || (readFor.current?.reload === reload && readFor.current.change === change)) return;
+    readFor.current = { reload, change };
+    void reload();
+  }, [change, focused, reload]);
   const run = useCallback((retryKey: string, work: (valid: () => boolean) => Promise<void>) => {
     const generation = authority.current;
     const valid = () => current() && generation === authority.current;
@@ -101,6 +109,8 @@ export function useGroupPersonalMask(groupId: string, deviceId: string, enabled:
     run(retryKey, async valid => {
       if (!stateRef.current || !valid()) return;
       value ??= make(stateRef.current);
+      // Queued/retried participation must honor the latest saved trigger.
+      if (value.type === 'participate' && (!stateRef.current.settings.enabled || stateRef.current.settings.trigger === 'always')) return;
       try {
         const response = await call('mask', { action: value, operationId });
         if (valid() && 'state' in response && response.state) {
@@ -128,7 +138,7 @@ export function useGroupPersonalMask(groupId: string, deviceId: string, enabled:
     update: (patch: Partial<ChatMaskSettings>) => action(`save:${Object.keys(patch).sort().join(',')}`, s => ({ type: 'save', expectedRevision: s.revision,
       settings: { ...s.settings, companionId: s.settings.companionId ?? s.defaultCompanionId ?? null, ...patch, timeZone: s.revision ? s.settings.timeZone : Intl.DateTimeFormat().resolvedOptions().timeZone } })),
     perform: (type: 'resume' | 'stop' | 'digest' | 'participate') => action(type, () => ({ type })),
-    participate: () => { if (!stateRef.current?.settings.enabled || Date.now() - lastParticipation.current < 2000) return;
+    participate: () => { if (!stateRef.current?.settings.enabled || stateRef.current.settings.trigger === 'always' || Date.now() - lastParticipation.current < 2000) return;
       lastParticipation.current = Date.now(); action('participate', () => ({ type: 'participate' })); },
     retry: () => { if (failed.current.size) for (const send of failed.current.values()) queue.current = queue.current.then(send, send); else void reload(); },
   };

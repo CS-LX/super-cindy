@@ -1,7 +1,8 @@
-import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
 import { flushSync } from 'react-dom';
 import { observeProgrammaticScroll } from './observeProgrammaticScroll';
 import { isEditableKeyboardTarget } from '@/lib/editableKeyboardTarget';
+import { collectTabbables } from '@/lib/focusTraversal';
 import { isPageTextAccessActive, subscribePageTextAccess } from '@/lib/pageTextAccess';
 import { MessageViewportGeometry } from './messageViewportGeometry';
 
@@ -39,6 +40,7 @@ export function useMessageViewport(options: Options) {
   const accessibilitySupportRef = useRef(accessibilitySupport);
   const [keyboardOrSelection, setKeyboardOrSelection] = useState(false);
   const keyboardOrSelectionRef = useRef(false);
+  const [keyboardRows, setKeyboardRows] = useState<ReadonlySet<string>>(() => new Set());
   const [pageTextAccess, setPageTextAccess] = useState(isPageTextAccessActive);
   const pageTextAccessRef = useRef(pageTextAccess);
   const [mounted, setMounted] = useState(() => {
@@ -60,14 +62,46 @@ export function useMessageViewport(options: Options) {
   } | null>(null);
   const mutations = useRef<MutationObserver | null>(null);
   const [geometry] = useState(() => new MessageViewportGeometry());
+  // Reading-position snapshots use the same row index as virtualization. A
+  // long expanded history must not scan every preceding DOM row on each scroll.
+  const getViewportTopRow = useCallback(() => {
+    const root = latest.current.scrollRef.current;
+    const items = latest.current.itemsRef.current;
+    if (!root || !items) return null;
+    const records = mutations.current?.takeRecords();
+    if (records?.length) geometry.mutations(records, items);
+    if (geometry.invalid) measurement.current = null;
+    const previousOrigin = geometry.origin;
+    geometry.refresh(root, items, heights.current);
+    if (geometry.origin !== previousOrigin) measurement.current = null;
+    return geometry.range(root.scrollTop, root.clientHeight, 0).anchorElement;
+  }, [geometry]);
   const needsReconcileRef = useRef<() => boolean>(() => true);
   const reconcileRef = useRef<() => void>(() => {});
-  // Programmatic writes made in rAF or an event callback can paint before the
-  // browser emits scroll. Their callers must commit the destination immediately.
+  const frame = useRef(0);
   const reconcileViewport = useCallback(() => reconcileRef.current(), []);
+  // Scroll events, programmatic writes, resize deliveries and external sync
+  // calls can each arrive several times per frame (a streaming pin emits most
+  // of them at once). Coalesce them into one rAF flush that commits the
+  // destination window before this frame paints, instead of forcing a
+  // synchronous commit per signal.
+  const scheduleViewportReconcile = useCallback(() => {
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
+      flushSync(() => reconcileRef.current());
+    });
+  }, []);
+  // Callers move the viewport first and may run inside a rendering callback
+  // (animateFocusScroll's tick): reconcile synchronously so the destination
+  // commits before the current frame paints and same-paint corrections can
+  // read the mounted heights.
   const syncViewport = useCallback(() => {
-    if (needsReconcileRef.current()) flushSync(reconcileViewport);
-  }, [reconcileViewport]);
+    if (needsReconcileRef.current()) flushSync(() => reconcileRef.current());
+  }, []);
+  useEffect(() => () => {
+    if (frame.current) cancelAnimationFrame(frame.current);
+  }, []);
 
   const preserveTextAccessAnchor = useCallback(() => {
     const { scrollRef, itemsRef, followRef } = latest.current;
@@ -185,19 +219,18 @@ export function useMessageViewport(options: Options) {
     const root = options.scrollRef.current;
     const items = options.itemsRef.current;
     if (!root || !items) return;
-    let frame = 0;
-    // A scroll event runs before paint. Deferring mounting to another rAF can
-    // expose empty placeholders when a wheel/scrollbar jump exceeds overscan.
-    const reconcileBeforePaint = syncViewport;
-    const stopObservingWrites = observeProgrammaticScroll(root, () => flushSync(() => {
+    // A scroll event dispatches before this frame's rAF callbacks: a rAF
+    // requested here reconciles before that frame paints, coalescing bursts
+    // of scroll and resize signals into one commit.
+    const stopObservingWrites = observeProgrammaticScroll(root, () => {
       // The owner's scroll coordinator must see the new position before our
       // DOM replacement triggers its height/MutationObserver compensation.
+      // Its state updates batch normally; only the reconcile commits now.
       latest.current.onProgrammaticScroll?.();
-      reconcileRef.current();
-    }));
-    const schedule = () => {
-      if (!frame) frame = requestAnimationFrame(() => { frame = 0; reconcileBeforePaint(); });
-    };
+      if (needsReconcileRef.current()) flushSync(() => reconcileRef.current());
+    });
+    const schedule = scheduleViewportReconcile;
+    const onScroll = () => scheduleViewportReconcile();
     const retainInteraction = (event: Event) => {
       const row = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-render-item-key]') : null;
       if (row && items.contains(row) && row.dataset.renderItemKey) {
@@ -205,7 +238,6 @@ export function useMessageViewport(options: Options) {
         measurement.current = null;
       }
     };
-    let keyboardTraversal = false;
     let textAccessTimer: ReturnType<typeof setTimeout> | undefined;
     const setTextAccess = (enabled: boolean) => {
       if (keyboardOrSelectionRef.current === enabled) return;
@@ -223,7 +255,8 @@ export function useMessageViewport(options: Options) {
       return false;
     };
     const updateTextAccess = () => {
-      setTextAccess((keyboardTraversal && root.contains(document.activeElement)) || selectionIntersectsItems());
+      setTextAccess(selectionIntersectsItems());
+      if (!root.contains(document.activeElement)) setKeyboardRows(previous => previous.size ? new Set() : previous);
     };
     const settleTextAccess = () => {
       clearTimeout(textAccessTimer);
@@ -232,16 +265,39 @@ export function useMessageViewport(options: Options) {
       textAccessTimer = setTimeout(updateTextAccess, 0);
     };
     const pointer = () => {
-      keyboardTraversal = false;
       settleTextAccess();
     };
+    const prepareTabDestination = (reverse: boolean) => {
+      // Include virtual rows in native DOM order, revealing only rows on the
+      // way to the next control. Never consume Tab or move focus ourselves.
+      // A Tab between composer/toolbar controls must not expand the history.
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement)) return;
+      for (let remaining = latest.current.entries.length; remaining > 0; remaining--) {
+        const candidates = collectTabbables(document, element =>
+          items.contains(element) && element.hasAttribute('data-message-placeholder'));
+        // Native positive tabindex precedes ordinary document-order controls.
+        candidates.sort((a, b) => (a.tabIndex > 0 ? a.tabIndex : Infinity) -
+          (b.tabIndex > 0 ? b.tabIndex : Infinity));
+        const index = candidates.indexOf(active);
+        const next = index >= 0 ? candidates[index + (reverse ? -1 : 1)] :
+          (reverse ? [...candidates].reverse() : candidates).find(element =>
+            Boolean(active.compareDocumentPosition(element) &
+              (reverse ? Node.DOCUMENT_POSITION_PRECEDING : Node.DOCUMENT_POSITION_FOLLOWING)));
+        if (!next || !items.contains(next) || !next.hasAttribute('data-message-placeholder')) return;
+        const key = next.dataset.renderItemKey;
+        if (!key) return;
+        flushSync(() => {
+          preserveTextAccessAnchor();
+          setKeyboardRows(previous => new Set([...previous, key]));
+        });
+      }
+    };
     const keyboard = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
+      if (event.defaultPrevented || event.isComposing) return;
       if (event.key === 'Tab') {
-        // Capture at window: Tab/Shift+Tab can enter from a composer or toolbar
-        // outside the scroll root. Mount before native tab-order traversal.
-        keyboardTraversal = true;
-        flushSync(() => setTextAccess(true));
+        if (event.altKey || event.ctrlKey || event.metaKey) return;
+        prepareTabDestination(event.shiftKey);
         settleTextAccess();
         return;
       }
@@ -274,42 +330,44 @@ export function useMessageViewport(options: Options) {
     const mutationObserver = new MutationObserver(invalidate);
     mutations.current = mutationObserver;
     mutationObserver.observe(items, { subtree: true, childList: true, characterData: true, attributes: true, attributeOldValue: true });
-    root.addEventListener('scroll', reconcileBeforePaint, { passive: true });
+    root.addEventListener('scroll', onScroll, { passive: true });
     root.addEventListener('pointerdown', retainInteraction, true);
     root.addEventListener('focusin', retainInteraction);
     root.addEventListener('keydown', retainInteraction, true);
-    window.addEventListener('keydown', keyboard, true);
+    // Bubble after editor completion / modal handlers have had first refusal,
+    // but before the browser performs its native focus or selection action.
+    window.addEventListener('keydown', keyboard);
     window.addEventListener('pointerdown', pointer, true);
     document.addEventListener('focusin', settleTextAccess);
     document.addEventListener('focusout', settleTextAccess);
     document.addEventListener('selectionchange', updateTextAccess);
     return () => {
       stopObservingWrites();
-      cancelAnimationFrame(frame);
       clearTimeout(textAccessTimer);
       observer.disconnect();
       geometry.observe(null);
       mutationObserver.disconnect();
       mutations.current = null;
       measurement.current = null;
-      root.removeEventListener('scroll', reconcileBeforePaint);
+      root.removeEventListener('scroll', onScroll);
       root.removeEventListener('pointerdown', retainInteraction, true);
       root.removeEventListener('focusin', retainInteraction);
       root.removeEventListener('keydown', retainInteraction, true);
-      window.removeEventListener('keydown', keyboard, true);
+      window.removeEventListener('keydown', keyboard);
       window.removeEventListener('pointerdown', pointer, true);
       document.removeEventListener('focusin', settleTextAccess);
       document.removeEventListener('focusout', settleTextAccess);
       document.removeEventListener('selectionchange', updateTextAccess);
     };
-  }, [options.scrollRef, options.itemsRef, options.connection, preserveTextAccessAnchor, syncViewport, geometry]);
+  }, [options.scrollRef, options.itemsRef, options.connection, preserveTextAccessAnchor, scheduleViewportReconcile, geometry]);
 
   return {
+    getViewportTopRow,
     connectViewport,
     reconcileViewport,
     syncViewport,
     shouldMount: (entry: Entry) => options.disabled || accessibilitySupport || pageTextAccess || keyboardOrSelection || entry.retain ||
-      retained.current.has(entry.key) || mounted.has(entry.key),
+      retained.current.has(entry.key) || keyboardRows.has(entry.key) || mounted.has(entry.key),
     placeholderHeight: (key: string) => heights.current.get(key) ?? ESTIMATE,
   };
 }

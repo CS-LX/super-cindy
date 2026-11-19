@@ -37,6 +37,7 @@ vi.mock('../logger.js', () => ({
 import {
   prepareExternalCodexSessionForResume,
   readCodexThreadStorageForArchive,
+  readCodexThreadStorageForArchiveAsync,
   dumpCodexThreadStateRows,
   classifyCodexHistoryOversized,
   repairCodexRolloutPath,
@@ -88,7 +89,7 @@ function createLocalDb(): Database.Database {
       list_preview_role TEXT,
       list_message_count INTEGER,
       cleared_at INTEGER,
-      pinned_at INTEGER,
+      pinned_at INTEGER, snoozed_until INTEGER, snoozed_at INTEGER,
       user_send_at INTEGER,
       agent_kind TEXT NOT NULL DEFAULT 'cc',
       parent_session_id TEXT,
@@ -304,6 +305,39 @@ afterEach(() => {
 });
 
 describe('Codex local session import', () => {
+  // KFJS unit regression: missing-index discovery must locate the newest exact
+  // thread without blocking on unrelated files or mutating/importing history.
+  // Prior archive tests only used synchronous lookup and indexed state DBs.
+  it('async fallback finds the newest matching rollout without stat-ing unrelated history', async () => {
+    const home = path.join(targetUserData, 'codex-home');
+    const older = path.join(home, 'sessions', `rollout-2026-05-12-${threadId}.jsonl`);
+    const newer = path.join(home, 'archived_sessions', `rollout-2026-05-13-${threadId}.jsonl`);
+    const unrelated = path.join(home, 'sessions', `rollout-2026-05-13-${execThreadId}.jsonl`);
+    const content = JSON.stringify({ type: 'session_meta', payload: { id: threadId, source: 'cli' } }) + '\n';
+    // #11025 unit: the no-index archive fallback reads sqlite_home from native
+    // config. A single BOM previously blocked archive lookup; never rewrite it.
+    const sqliteHome = path.join(rootDir, 'custom-state');
+    const config = `\uFEFFsqlite_home = ${JSON.stringify(sqliteHome)}\n`;
+    fs.mkdirSync(home, { recursive: true });
+    fs.writeFileSync(path.join(home, 'config.toml'), config);
+    for (const file of [older, newer, unrelated]) {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, content);
+    }
+    fs.utimesSync(older, 1000, 1000);
+    fs.utimesSync(newer, 2000, 2000);
+    const stat = vi.spyOn(fs.promises, 'stat');
+    try {
+      await expect(readCodexThreadStorageForArchiveAsync(threadId)).resolves.toEqual({
+        historyHome: home, sqliteHome, rolloutPath: newer,
+      });
+      expect(stat.mock.calls.some(([file]) => file === unrelated)).toBe(false);
+      expect(fs.readFileSync(newer, 'utf8')).toBe(content);
+      expect(fs.readFileSync(path.join(home, 'config.toml'), 'utf8')).toBe(config);
+      expect(currentTestDb().prepare('SELECT COUNT(*) AS n FROM sessions').get()).toEqual({ n: 0 });
+      await expect(readCodexThreadStorageForArchiveAsync('not-a-thread')).resolves.toBeUndefined();
+    } finally { stat.mockRestore(); }
+  });
   it('locates archive storage in the known state DB after sqlite_home changes', () => {
     const dbPath = createStateDb(externalHome);
     const newHome = path.join(rootDir, 'new-state');

@@ -34,10 +34,12 @@ vi.mock('@/features/device-link/mirrorCacheClient', () => ({
   clearCachedDevice: vi.fn(),
 }));
 vi.mock('@/hooks/useAgentCapabilities', () => ({
+  getInterestedDeviceCapabilityTargets: () => [],
   prefetchDeviceCapabilities: vi.fn(),
   evictDeviceCapabilities: vi.fn(),
 }));
 vi.mock('@/hooks/useDeviceProviders', () => ({
+  getInterestedDeviceProviderTargets: () => [],
   prefetchDeviceProviders: vi.fn(),
   evictDeviceProviders: vi.fn(),
 }));
@@ -95,7 +97,7 @@ function setupStartup() {
   }> }>();
   state.readCache.mockReturnValue(cache.promise);
   const listen = () => () => {};
-  let onStatus = (_event: { status: string }) => {};
+  let onStatus: (event: { status: string; directDataDeviceIds?: string[]; dataPathChangedDeviceId?: string }) => void = () => {};
   Object.defineProperty(window, 'electronAPI', { configurable: true, value: { deviceLink: {
     getState: () => link.promise,
     listDevices: () => directory.promise,
@@ -107,8 +109,75 @@ function setupStartup() {
     onControlTargetChanged: listen, onRemotePush: listen, onResponsivenessChanged: listen,
   } } });
   saveLastChatView({ kind: 'session', sessionId: 'remote-A' });
-  return { cache, link, directory, status: (status: string) => onStatus({ status }), stop: () => onStatus({ status: 'stopped' }) };
+  return { cache, link, directory, status: (status: string) => onStatus({ status }), stop: () => onStatus({ status: 'stopped' }),
+    dataStatus: (status: string, directDataDeviceIds: string[], dataPathChangedDeviceId?: string) => onStatus({ status, directDataDeviceIds, dataPathChangedDeviceId }) };
 }
+
+it('preserves only the authenticated direct mirror across relay loss and disconnects it when that data path ends', async () => {
+  const f = setupStartup();
+  renderHook(() => useDeviceLinkRemoteProjects());
+  const row = (id: string) => ({ id, status: 'active', source: 'desktop' }) as import('@/lib/ccAgent.types').Session;
+  await act(async () => { f.cache.resolve([]); f.link.resolve({ linkStatus: 'online' }); f.directory.resolve({ devices: [] }); });
+  await act(async () => {
+    remoteProjectsStore.setDeviceSessions('M', 'M', [row('m-task')]);
+    remoteProjectsStore.setDeviceSessions('other', 'Other', [row('other-task')]);
+  });
+  const epoch = remoteProjectsStore.getDeviceLifecycleEpoch('M');
+  await act(async () => { f.dataStatus('connecting', ['M']); await vi.advanceTimersByTimeAsync(60_000); });
+  expect(remoteProjectsStore.getDeviceSessions('M')[0].deviceLinkConnectionStatus).toBe('connected');
+  expect(remoteProjectsStore.getDeviceLifecycleEpoch('M')).toBe(epoch);
+  expect(remoteProjectsStore.getDeviceSessions('other')[0].deviceLinkConnectionStatus).toBe('disconnected');
+  await act(async () => { f.dataStatus('connecting', [], 'M'); });
+  expect(remoteProjectsStore.getDeviceSessions('M')[0].deviceLinkConnectionStatus).toBe('disconnected');
+});
+
+/**
+ * 测试价值
+ * - 生产入口与可观察结果：useDeviceLinkRemoteProjects 的 reseed(listDevices)；
+ *   stale 目录缺席的设备仍保留本地会话分片，不被当作权威删除。
+ * - Bug/规则依据：目录快照是有界回退，不授予“设备已移除”的结论（provider-groups / remote-and-mobile）。
+ * - 现有覆盖缺口：既有用例只覆盖 listDevices 失败时保留缓存，未覆盖成功返回 stale 快照但设备缺席。
+ * - 最小失败输入：fresh [M] 后 listDevices 返回 { devices: [], stale: true }，store 还有 other 分片。
+ * - tier：unit（jsdom）。
+ */
+it('keeps a cached shard when a stale directory omits its device', async () => {
+  vi.useFakeTimers();
+  const cache = deferred<Awaited<ReturnType<typeof state.readCache>>>();
+  const link = deferred<{ linkStatus: string }>();
+  state.readCache.mockReturnValue(cache.promise);
+  const listen = () => () => {};
+  let onStatus: (event: { status: string; directDataDeviceIds?: string[] }) => void = () => {};
+  Object.defineProperty(window, 'electronAPI', { configurable: true, value: { deviceLink: {
+    getState: () => link.promise,
+    listDevices: vi.fn()
+      .mockResolvedValueOnce({ devices: [{ deviceId: 'M', name: 'Mini', online: true,
+        remoteControlEnabled: true, isSelf: false, platform: 'darwin', appVersion: '1.0.0',
+        busy: false, controlEnabled: true, lastSeenAt: null }] })
+      .mockResolvedValueOnce({ devices: [], stale: true }),
+    subscribe: async () => {}, unsubscribe: async () => {},
+    onPresenceChanged: listen,
+    onStatusChanged: (callback: typeof onStatus) => { onStatus = callback; return () => {}; },
+    onAccessRevoked: listen, onControlTargetChanged: listen, onRemotePush: listen, onResponsivenessChanged: listen,
+  } } });
+  renderHook(() => useDeviceLinkRemoteProjects());
+  await act(async () => { cache.resolve([]); link.resolve({ linkStatus: 'online' }); await Promise.resolve(); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  await act(async () => {
+    remoteProjectsStore.setDeviceSessions('M', 'Mini', [
+      { id: 'm-task', status: 'active', source: 'desktop' } as import('@/lib/ccAgent.types').Session,
+    ]);
+    remoteProjectsStore.setDeviceSessions('other', 'Other', [
+      { id: 'other-task', status: 'active', source: 'desktop' } as import('@/lib/ccAgent.types').Session,
+    ]);
+    onStatus({ status: 'connecting' });
+    onStatus({ status: 'online' });
+    await vi.advanceTimersByTimeAsync(0);
+  });
+  expect(remoteProjectsStore.getAllDeviceIds()).toContain('M');
+  expect(remoteProjectsStore.getAllDeviceIds()).toContain('other');
+  expect(vi.mocked(clearCachedDevice)).not.toHaveBeenCalledWith('M');
+  expect(vi.mocked(clearCachedDevice)).not.toHaveBeenCalledWith('other');
+});
 
 // PR #8182: the primary synchronizer owns same-account mirrors. A healthy
 // shared task has its own poller/connection and must retain its writable row
@@ -356,6 +425,49 @@ it.each(['deleted', 'refused'] as const)('handles confirmed deletion before the 
   unmount();
 });
 
+// #9360 review: an authoritative denial must not survive a genuine reconnect.
+// The stale flag made the first post-reconnect read look denied, so a transient
+// failure there suppressed the bounded retry for good (an always-online peer never
+// emits another status event, so the directory stayed unavailable).
+it('retries the directory after a reconnect when the first read fails transiently', async () => {
+  vi.useFakeTimers();
+  let onStatus!: (payload: { status: string }) => void;
+  let onInvalidated!: () => void;
+  const listen = () => () => {};
+  const listDevices = vi.fn().mockRejectedValue(new Error('directory unavailable'));
+  const api = {
+    getState: async () => ({ linkStatus: 'online' }),
+    listDevices,
+    deleteDevice: vi.fn(async () => ({ deviceId: 'peer' })),
+    subscribe: vi.fn(async () => {}),
+    unsubscribe: vi.fn(async () => {}),
+    onPresenceChanged: listen,
+    onStatusChanged: (callback: typeof onStatus) => { onStatus = callback; return () => {}; },
+    onAccessRevoked: listen,
+    onControlTargetChanged: listen,
+    onRemotePush: listen,
+    onResponsivenessChanged: listen,
+    onDeviceDirectoryInvalidated: (callback: () => void) => { onInvalidated = callback; return () => {}; },
+  };
+  Object.defineProperty(window, 'electronAPI', { configurable: true, value: { deviceLink: api } });
+  const { unmount } = renderHook(() => {
+    useDeviceLinkRemoteProjects();
+  });
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  // The server authoritatively invalidated the directory.
+  await act(async () => { onInvalidated(); });
+  // An ordinary relay reconnect: connecting, then online.
+  await act(async () => { onStatus({ status: 'connecting' }); });
+  await act(async () => { onStatus({ status: 'online' }); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+  const afterReconnect = listDevices.mock.calls.length;
+  // The read after the reconnect failed transiently: the bounded retry must still
+  // be scheduled (5s base), otherwise the directory stays unavailable for good.
+  await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+  expect(listDevices.mock.calls.length).toBeGreaterThan(afterReconnect);
+  unmount();
+});
+
 it('ignores a directory snapshot started before confirmed deletion', async () => {
   vi.useFakeTimers();
   let finishDirectory!: (value: { devices: unknown[] }) => void;
@@ -398,7 +510,7 @@ it('ignores a directory snapshot started before confirmed deletion', async () =>
 it('refreshes project names on bootstrap, invalidation and reconnect and clears revoked mirrors', async () => {
   setDataOwnerGeneration('owner', 1);
   vi.useFakeTimers();
-  const listeners: Record<string, (...args: any[]) => void> = {};
+  const listeners: Record<string, (...args: unknown[]) => void> = {};
   let alias = 'Initial name';
   const invoke = vi.fn(async () => ({
     aliases: [{ projectKey: 'local:/repo', alias }],
@@ -416,7 +528,7 @@ it('refreshes project names on bootstrap, invalidation and reconnect and clears 
     ...Object.fromEntries([
       'ResponsivenessChanged', 'PresenceChanged', 'StatusChanged', 'AccessRevoked',
       'ControlTargetChanged', 'RemotePush', 'PeerLinkReset',
-    ].map((name) => [`on${name}`, (callback: (...args: any[]) => void) => {
+    ].map((name) => [`on${name}`, (callback: (...args: unknown[]) => void) => {
       listeners[name] = callback;
       return () => {};
     }])),
@@ -456,7 +568,7 @@ it('refreshes project names on bootstrap, invalidation and reconnect and clears 
 
 it.each(['connecting', 'unknown', 'late-subscribe', 'late-snapshot', 'circuit-subscribe', 'circuit-snapshot'])('handles initial %s state without redundant bootstrap', async (initialStatus) => {
   vi.useFakeTimers();
-  const listeners: Record<string, (...args: any[]) => void> = {};
+  const listeners: Record<string, (...args: unknown[]) => void> = {};
   let release!: () => void;
   const subscribe = vi.fn(
     () =>
@@ -482,7 +594,7 @@ it.each(['connecting', 'unknown', 'late-subscribe', 'late-snapshot', 'circuit-su
     ...Object.fromEntries(
       ['Responsiveness', 'Presence', 'Status', 'AccessRevoked', 'ControlTarget'].map((name) => [
         `on${name}Changed`,
-        (callback: (...args: any[]) => void) => {
+        (callback: (...args: unknown[]) => void) => {
           listeners[name] = callback;
           return () => {};
         },

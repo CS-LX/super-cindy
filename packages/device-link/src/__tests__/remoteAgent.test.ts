@@ -21,12 +21,50 @@ import {
 const runId = '0f9c4a2e-6d1b-4c3a-9e8f-1a2b3c4d5e6f';
 const otherId = '1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d';
 
+describe('shared image request', () => {
+  const request = {
+    op: 'shared-image', action: 'start', requestId: runId, providerId: 'openai',
+    model: 'openai/gpt-image-2', prompt: 'A blue square', size: '1024x1024',
+  };
+
+  it('preserves native options without forwarding host-owned fields', () => {
+    const nativeParameters = { rendering: { seed: 7 }, n: 1 };
+    expect(parseRemoteAgentRequest({ ...request, imagePaths: ['/owner/private.png'], nativeParameters }))
+      .toEqual({ ...request, nativeParameters });
+    expect(() => parseRemoteAgentRequest({ ...request, nativeParameters: { value: 'x'.repeat(65_537) } })).toThrow('REMOTE_AGENT_INVALID');
+    expect(() => parseRemoteAgentRequest({ ...request, prompt: 'a'.repeat(32769) })).toThrow('REMOTE_AGENT_INVALID');
+    expect(() => parseRemoteAgentRequest({ ...request, reshareKey: 'a'.repeat(32) })).toThrow('REMOTE_AGENT_INVALID');
+  });
+
+  it('requires a request id and a nonnegative offset to read image bytes', () => {
+    const read = { op: 'shared-image', action: 'read', requestId: runId, offset: 0 };
+    expect(parseRemoteAgentRequest(read)).toEqual(read);
+    expect(() => parseRemoteAgentRequest({ ...read, offset: -1 })).toThrow('REMOTE_AGENT_INVALID');
+    expect(() => parseRemoteAgentRequest({ ...read, requestId: '../owner' })).toThrow('REMOTE_AGENT_INVALID');
+  });
+});
+
+// Unit: direct-switch's optional generation must survive the production parser
+// so an old startup cannot authorize recovery of a replacement allocation.
+it('preserves optional direct-switch generations and accepts legacy requests', () => {
+  const request = { op: 'direct-switch', sessionId: 'task' };
+  expect(parseRemoteAgentRequest(request)).toEqual(request);
+  expect(parseRemoteAgentRequest({ ...request, generation: runId })).toEqual({ ...request, generation: runId });
+  expect(() => parseRemoteAgentRequest({ ...request, generation: 'invalid' })).toThrow();
+});
+
 describe('subscription Fast policy wire compatibility', () => {
   it('advertises support only with an explicit capability', () => {
     const caps = { version: 1, maxRuns: 10, uploadChunkBytes: 1024, maxPayloadBytes: 8192 };
     expect(parseRemoteAgentCaps(caps).subscriptionFastPolicy).toBeUndefined();
     expect(parseRemoteAgentCaps({ ...caps, subscriptionFastPolicy: true }).subscriptionFastPolicy).toBe(true);
     expect(parseRemoteAgentCaps({ ...caps, subscriptionFastPolicy: 'true' }).subscriptionFastPolicy).toBeUndefined();
+    expect(parseRemoteAgentCaps(caps).subscriptionFastPolicyCache).toBeUndefined();
+    expect(parseRemoteAgentCaps({ ...caps, subscriptionFastPolicyCache: true }).subscriptionFastPolicyCache).toBe(true);
+    expect(parseRemoteAgentCaps({ ...caps, subscriptionFastPolicyCache: 'true' }).subscriptionFastPolicyCache).toBeUndefined();
+    expect(parseRemoteAgentCaps(caps).groupContinuity).toBeUndefined();
+    expect(parseRemoteAgentCaps({ ...caps, groupContinuity: true }).groupContinuity).toBe(true);
+    expect(parseRemoteAgentCaps({ ...caps, groupContinuity: 'true' }).groupContinuity).toBeUndefined();
   });
   it('parses a narrow registration without trusting arbitrary execution options', () => {
     const command = { op: 'fast-policy', group: 'openai-account', revision: 2, allowFast: false,
@@ -258,6 +296,13 @@ describe('remote agent channel', () => {
       .toEqual({ op: 'open', runId, agentKind: 'pi', payload: { json: { a: 1 } } });
     expect(parseRemoteAgentRequest({ op: 'call', runId, callId: otherId, method: 'send', payload: { json: [1] } }))
       .toEqual({ op: 'call', runId, callId: otherId, method: 'send', payload: { json: [1] } });
+    // poll maxBytes (2026-11-19): optional; out-of-range sizes are clamped, never reject the poll.
+    expect(parseRemoteAgentRequest({ op: 'poll', runs: [{ runId, cursor: 0 }], maxBytes: 128 * 1024 }))
+      .toEqual({ op: 'poll', runs: [{ runId, cursor: 0 }], maxBytes: 128 * 1024 });
+    expect(parseRemoteAgentRequest({ op: 'poll', runs: [{ runId, cursor: 0 }], maxBytes: 1 }))
+      .toEqual({ op: 'poll', runs: [{ runId, cursor: 0 }], maxBytes: 64 * 1024 });
+    expect(parseRemoteAgentRequest({ op: 'poll', runs: [{ runId, cursor: 0 }], maxBytes: 64 * 1024 * 1024 }))
+      .toEqual({ op: 'poll', runs: [{ runId, cursor: 0 }], maxBytes: 1536 * 1024 });
     expect(parseRemoteAgentRequest({ op: 'poll', runs: [{ runId, cursor: 7 }, { runId: otherId, cursor: 0 }] }))
       .toEqual({ op: 'poll', runs: [{ runId, cursor: 7 }, { runId: otherId, cursor: 0 }] });
     expect(parseRemoteAgentRequest({ op: 'reply', runId, requestId: otherId, payload: { uploadId: otherId, chunks: 2, bytes: 10 } }))
@@ -280,6 +325,18 @@ describe('remote agent channel', () => {
     const identity = { shareId: 'share-1', memberId: 'member-1', guestDeviceId: 'guest-pc', sessionId: 'task-1' };
     const grant = { op: 'delegate', action: 'grant', ...identity, providerId: 'openai', model: 'gpt', generation };
     expect(parseRemoteAgentRequest(grant)).toMatchObject(grant);
+    // Speed metadata rides the already authenticated grant; old grants remain
+    // parseable, and malformed policy must never become permission to use Fast.
+    const fastPolicy = { group: 'group', revision: 3, allowFast: false };
+    expect(parseRemoteAgentRequest({ ...grant, fastPolicy })).toMatchObject({ fastPolicy });
+    // Wire input cannot supply M's clock/local trust or choose a task binding.
+    expect(parseRemoteAgentRequest({ ...grant, fastPolicy: { ...fastPolicy,
+      local: true, confirmedAt: Number.MAX_SAFE_INTEGER, binding: { sessionId: 'other-task' } } }))
+      .toEqual({ ...grant, fastPolicy });
+    expect(() => parseRemoteAgentRequest({ ...grant, fastPolicy: { ...fastPolicy, allowFast: 'false' } }))
+      .toThrow('REMOTE_AGENT_INVALID');
+    expect(() => parseRemoteAgentRequest({ ...grant, fastPolicy: { ...fastPolicy, revision: -1 } }))
+      .toThrow('REMOTE_AGENT_INVALID');
     expect(() => parseRemoteAgentRequest({ ...grant, generation: undefined })).toThrow('REMOTE_AGENT_INVALID');
     const usage = { op: 'direct-usage', ...identity, agentKind: 'codex', generation,
       usageId: '22222222-2222-4222-8222-222222222222', samples: [{ model: 'gpt', turns: 1,
@@ -372,6 +429,9 @@ it('negotiates native-history transfer without making mutations retryable on old
   expect(parseRemoteAgentCaps(caps).nativeHistoryTransfer).toBeUndefined();
   expect(parseRemoteAgentCaps({ ...caps, nativeHistoryTransfer: true }).nativeHistoryTransfer).toBe(true);
   expect(parseRemoteAgentCaps({ ...caps, nativeHistoryTransfer: 'yes' }).nativeHistoryTransfer).toBeUndefined();
+  expect(parseRemoteAgentCaps({ ...caps, nativeHistoryTransfer: true }).nativeHistoryBackup).toBeUndefined();
+  expect(parseRemoteAgentCaps({ ...caps, nativeHistoryBackup: true }).nativeHistoryBackup).toBe(true);
+  expect(parseRemoteAgentCaps({ ...caps, nativeHistoryBackup: 'yes' }).nativeHistoryBackup).toBeUndefined();
   const request = { op: 'native-history', sessionId: 'task', command: { action: 'export', kind: 'codex', nativeId: runId } };
   expect(parseRemoteAgentRequest({ ...request, workingDir: '/owner' })).toEqual(request);
   expect(() => parseRemoteAgentRequest({ ...request, sessionId: '../task' })).toThrow('REMOTE_AGENT_INVALID');

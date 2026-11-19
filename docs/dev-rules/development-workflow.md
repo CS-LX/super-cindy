@@ -2,11 +2,16 @@
 
 > **状态**：权威开发规则（authoritative）
 > **读取时机**：在 Cindy 内嵌的 worktree 会话里工作、准备提交或直推、做 code review，
-> 或决定开发中得到的知识该写到哪里之前
+> 或决定开发中得到的知识该写到哪里、新增规则文档、整理与迁移规则文档之前
+> **适用路径**：`AGENTS.md`、`{apps,packages}/**/AGENTS.md`、`REVIEW.md`、`CONTRIBUTING*.md`、
+> `docs/dev-rules/**`、`docs/product-rules/**`、`docs/design-rules/**`、`scripts/rule-index.mjs`、
+> `scripts/check-dco.mjs`、`.githooks/**`、`.github/PULL_REQUEST_TEMPLATE.md`
 
-本文细化根 [`../../AGENTS.md`](../../AGENTS.md) 的「通用工作流程」「Git 与交付」两节，补上
-worktree 会话契约、直推 `main` 的额外门禁、review 严重度口径与项目知识归属，不重复根文件
-已有的通用流程。
+本文是仓库交付约定的正本，维护 worktree 会话契约、DCO、提交验证、直推 `main` 的
+额外门禁、review 严重度口径、项目知识归属与文档整理原则；根 [AGENTS.md](../../AGENTS.md)
+保留关键约束与阅读入口。提交、push 和 PR 的时机由用户或宿主工作流决定，本文不额外授权外部写操作。
+自动审阅是建议性检查，口径与修改入口见 [REVIEW.md](../../REVIEW.md)，不替代人工 review
+或 CI 门禁。
 
 ## 1. Dogfooding：在本仓 worktree 会话里工作
 
@@ -14,6 +19,39 @@ Cindy 创建或重建托管 worktree 时，会尽力向 Git 本地 `info/exclude
 根级排除规则，避免基础仓库的未跟踪扫描进入这些目录。保留已有规则，不修改项目
 `.gitignore`，不影响已跟踪文件；写入失败不阻止创建或恢复。不扫描、排除任意第三方目录。
 实现见 `apps/desktop/src/main/worktree/managedWorktreeExclude.ts`。
+
+仓库根有 `.multibox.toml`、且本机能运行 `git multibox --version` 时，托管 worktree 的
+创建、目录丢失后的重建和删除改用 Multibox（`git multibox`，`git worktree` 的替代品）：
+一次给出带引擎缓存（Unity `Library/`、Rust `target/` 等）的完整目录，不带 `--no-checkout`
+（带上会退回普通 worktree、不复制缓存），也不做分段检出和后台 checkout；`.worktreeinclude`
+匹配的文件只补缺、不覆盖 Multibox 已克隆的副本；删除带 `--wait`，不带 `-f` 时同样拒绝删除
+有改动的工作区。两个条件缺一就走原生 `git worktree`，普通仓库不额外启动探测进程。按是否
+启用选择，不按失败回退：Multibox 报错原样显示给用户，不改用 `git worktree add` 重试。
+同一次创建中途失败的回滚不再逐字节比较 ignored 文件：此时它们全是本次刚从 base 克隆的
+引擎缓存（常见十万级文件、数十 GB），比较只会长时间占住该仓库的创建队列。
+Multibox 建完才返回（2026-11-16 实测 Unity 项目 67–88 秒），所以远程创建（另一台电脑或
+手机发起）的等待上限是 5 分钟（`packages/device-link/src/allowlist.ts` 的 `worktree:create`），
+期间控制端一直显示创建中，建好后才建任务，Agent 不会进入半成品目录；未更新的控制端仍按
+60 秒超时。Desktop 的创建中卡片（`WorktreeCreatingOverlay`）超过 3 秒后显示已等待时长：本机
+新建在任务页替代输入框；远程创建时显示在新建页输入框下方，Goal 创建时显示在目标弹窗内。
+手机新建页暂无同款卡片与计时。
+
+正常回收后的完整 Git 快照恢复也使用 Multibox：直接在最终目录检出快照 commit 并携带缓存，
+再只还原原 HEAD、index 和分支连接，保留 staged、unstaged 与未跟踪文件；不经临时路径搬移，
+避免缓存内的绝对路径失效。回收记录的可选 `multiboxRestore` 标记和预留目录身份覆盖中断重试；
+恢复期间出现新的文件、暂存或 HEAD 变化时保留现场与快照，不覆盖用户改动。部分删除目录及
+历史加密归档仍使用原有保护式修复。旧 stash 恢复先让出 Multibox 刚复制且仍与 base 相同的
+本地配置，再还原快照里的用户版本；配置已被修改则保留并停止恢复。
+现状缺口：
+- `git multibox add` 报告的环境变量（如 `UNITY_PROJECT_PATH`）不会注入任务的 Agent 进程
+  （Codex 多个任务共用一个后台进程），需要的工具在工作区内运行 `eval "$(git multibox env)"`。
+- 预创建放弃与创建失败补偿（`preserveDirty` 路径）仍逐字节比较 ignored 文件；在 Multibox
+  的 Unity 仓库上会很慢，且主仓库编辑器改动缓存后通常判为保留，未回收的远程预创建账本会
+  阻止该设备再次远程创建 worktree。
+
+实现见 `apps/desktop/src/main/worktree/multibox.ts`、`restoreRecovery.ts`，回归见
+`apps/desktop/src/main/__tests__/worktreeManagerCreate.test.ts`、`worktreeRestore.test.ts` 与
+`worktreeRecovery.git-integration.test.ts` 的 Multibox 用例。
 
 如果你是 Cindy 内嵌的 agent，且 cwd 位于 `<baseRepo>/.cindy-worktrees/<name>`（或迁移前的
 `.xdt-worktrees/<name>`）下（会话级 git worktree），遵守以下契约：
@@ -33,6 +71,7 @@ Cindy 创建或重建托管 worktree 时，会尽力向 Git 本地 `info/exclude
   `apps/desktop/logs/`，读日志时拼 baseRepo 的绝对路径。
 - **会话结束与工作区保留**：是否 commit 由用户或宿主工作流决定，不能仅因会话结束
   强制提交。会话被删除或归档时脏 worktree 会先把改动和新文件存进 Git 快照再删目录；
+  手动归档单条任务时可明确选择丢弃，回收完成后会释放匹配的恢复快照。
   被 `.gitignore` 忽略的文件（依赖、构建产物）和 worktree 内克隆／初始化的嵌套仓库不保留。**PR
   merged／closed 不等于 Cindy 会话已结束**：只要 owning session 仍 active，任何外部 Git
   cleanup 都必须跳过该 `.cindy-worktrees` / `.xdt-worktrees` 目录与本地 `cindy/*` / `xdt/*` 分支，交给
@@ -52,7 +91,11 @@ Git 引用后确认原分支不存在时，使用当前 owner 的
 与原工作目录的哈希定位。重启后重新优先恢复原 worktree；仍失败则复用同一备用目录，
 不搬运或删除其中的文件。DB / Git 临时错误、绑定不匹配与快照冲突保留原目录重试，
 不登记备用目录。同一运行期不自动切回。明确换到另一工作目录时不复用旧绑定
-的备用目录。原地重建普通目录的现有行为保持不变，不把失败的 Git
+的备用目录。普通目录仍可原地重建，但当前 userData 的 `owners/` 下只允许重建当前
+owner 的目录；旧 owner 的缺失路径沿用目录不可用结果，不自动映射、搬运或清理账号数据。
+已有旧路径（含用户自行建立的 junction）不因该检查而改向。创建前复核账号边界和恢复记录，
+探测或排队期间切账号或清除恢复记录后不再发起创建；共享 I/O 队列在实际写入前复核，
+不同恢复尝试的创建请求不共用旧记录的检查。已经交给文件系统的操作无法撤销。不把失败的 Git
 worktree 建成空目录或自动切到项目根继续修改代码。
 
 恢复说明随本轮消息传给 Agent，明确原路径、文件未恢复和当前运行位置；消息被接受
@@ -83,6 +126,8 @@ worktree 建成空目录或自动切到项目根继续修改代码。
   - 提交前自查用 `pnpm check:dco`（`scripts/check-dco.mjs`，范围 `merge-base..head`）。
     它的判定刻意对齐 App 但**不识别 remediation commit**：本地通过则 App 必过，反之不然。
     改这个脚本时不要放宽 name／邮箱比对，否则会出现「本地绿、PR 红」。
+  - 自动 review 沙箱中的平台合成 HEAD 不属于真实 PR 提交；对它运行本地 DCO 检查的失败
+    不构成缺签证据。以 PR 的 DCO App check 与真实提交范围（`origin/main..PR head`）为准。
   - 漏签不要重新造一份提交：用 `git commit --amend -s --no-edit` 或
     `git rebase --signoff <base>` 补签后 `git push --force-with-lease`。
 - **提交前验证**：提交前完成与改动影响面匹配的测试，并对涉及的每个 package 运行
@@ -118,8 +163,13 @@ worktree 建成空目录或自动切到项目根继续修改代码。
     Vitest 也不再隐式加第二层锁。选择排队后，等待超过 15 分钟以退出码 `75` 结束，表示
     测试尚未执行；`guard` 和 CI 不参与。锁只协调同样选择 `--lock` 的进程，不能管理
     未选择排队的任务；有意统一预算时由使用者或宿主协调各入口。
+  - **Agent 环境变量**：workspace runner 启动测试前清掉 Agent 终端可能带着、会改变测试结果
+    但不属于被测代码的变量（`NODE_ENV`、`NODE_DEBUG`、`CLAUDE_CODE_IDE_SKIP_AUTO_INSTALL`、
+    `CINDY_INPUT_HANDOFF_ROUTE`），并在输出里列出清掉了哪些。新发现同类变量时加进
+    `scripts/test-workspaces.mjs` 的 `AGENT_ENV_TEST_POLLUTANTS`，不要只在对话里口头排除。
   - **长测试调用**：耗时不确定的检查优先后台运行并保留进度。工具结束等待不等于测试失败，
     不因等待时间较长重复启动或终止仍在正常运行的测试；外层超时按选定范围和本机情况设置。
+    输出较长时写进日志文件再读取定位失败项，不因终端截断而整轮重跑。
 - **按风险追加验证**：跨模块、高风险或基础设施改动追加更广泛验证（如仓库根
   `pnpm test:all`），**最终以 CI 门禁为准**。不得通过 skip、删除或弱化测试制造通过；
   PR「怎么验证的」一节必须**如实**填写，没跑不许写已跑。
@@ -152,7 +202,7 @@ worktree 建成空目录或自动切到项目根继续修改代码。
 | 信息 | 维护位置 |
 | --- | --- |
 | 实现约束、固定输入、自动判定 | 代码、配置与测试；能机判的同时落到 lint、测试或契约脚本 |
-| 工程规则、环境与工具链的坑、排错结论 | `docs/dev-rules/` 对应专题；单模块的放嵌套 `AGENTS.md`；根 `AGENTS.md` 只留触发条件 |
+| 工程规则、环境与工具链的坑、排错结论 | `docs/dev-rules/` 对应专题；单模块的放嵌套 `AGENTS.md`；何时要读写在专题自己的开头（见下），不往根 `AGENTS.md` 登记 |
 | 产品行为裁决与理由 | `docs/product-rules/` 对应专题；跨专题的放 `core-product-principles.md` |
 | 视觉、交互裁决与理由 | `docs/design-rules/`；带日期的取舍记进 `design-decision-log.md` |
 | 已发生的回归、复现与验证证据 | 对应测试；任务体验类归 `docs/dev-rules/session-regressions.md`；大图和录屏挂到 issue 或 PR |
@@ -165,3 +215,47 @@ worktree 建成空目录或自动切到项目根继续修改代码。
 
 本节回答「写到哪里」，不新增「每个 PR 都要写文档」的义务：是否需要回写仍按第 3 节「核对受影响
 的文档」「经验回写到已有依据」判断。
+
+### 规则文档声明何时要读
+
+一份规则在什么情况下必须先读，写在它自己开头的引用块里，不登记到别处：
+
+```markdown
+> **读取时机**：修改客户端自动更新链路之前
+> **适用路径**：`apps/desktop/src/main/updateService.ts`、`apps/desktop/cindy-updater/**`
+```
+
+- 「适用路径」写仓库相对路径通配（`**` 跨目录，`*` 不跨目录，`{a,b}` 多选一，目录要写
+  `/**`），覆盖这项功能在 Desktop、Mobile、共享 package 与 Host 的实际位置。只写「改到这里
+  多半需要这份规则」的路径；通配过宽会让每个改动都被提示，提示就没人看了。
+- 没有任何路径能判定的规则（原则、命名、流程）写 `> **适用路径**：按主题`。
+- 根条目里原有而正文没有的硬约束，写成 `> **要点**：…` 留在同一个引用块里。
+
+[规则索引](rule-index.md) 由 `pnpm rules:index` 从这些声明生成，不手改。动手前按要改的路径
+查索引或运行 `pnpm rules:for <路径…>`，提交前运行 `pnpm rules:changed`；自动审阅同样据此
+确定对照哪些规则（[REVIEW.md](../../REVIEW.md)）。`pnpm check:dev-docs` 核对：有读取时机的
+文档都声明了适用路径、每条路径仍匹配现存文件、索引是最新的。实现见
+[`scripts/rule-index.mjs`](../../scripts/rule-index.mjs)。
+
+起因（2026-11-17）：触发条件原先都登记在根 `AGENTS.md`，每个任务都要读完 58 条，条目多了
+反而被忽略——更新器那条一直在上下文里，#10938 仍未经确认就改了更新链路，靠独立审查才发现；
+按改动路径提示则不依赖记住全部条目。
+
+## 5. 文档的信息与组织
+
+文档只保留 Cindy 特有、无法从通用知识得知的信息：选择及其原因、实现约定、具体行为与参数、
+边界、例外、历史裁决和现状差距。精确契约必须写出，不能只写成哲学。
+
+整理只改排列、索引和位置，不丢失、不弱化信息：原则解释取舍，专题保存细则，索引写清场景；
+每项信息一个正本，动手前必须知道的约束在入口提醒。迁移时核对去向，保留条件、例外、强度
+和读取时机，并更新引用。代码和测试验证契约，不替代说明。
+
+常识可以省略，重复可以合并。排障得出的产品特有知识要保留，不因只发生过一次就删，也不
+自动扩大为通用规则。信息过时或矛盾时，核实并注明被哪项决定取代；目标与现状的差距明确
+标注，不为迁就现状改写承诺。
+
+根 `AGENTS.md` 每个任务都会完整加载。一句话放进去要同时满足：影响大多数任务；在知道该读
+哪份专题之前就需要；链接不能替代。其余放对应正文，根文件只留满足这三条的条目与硬约束。
+`pnpm check:dev-docs` 限制它的条目数和字节数：超出时把内容移进专题，不调高上限。
+（2026-11-17：它曾有 58 条「改 X 前先读 Y」、24 KB，多数只关系到很少的任务；Codex 只读入
+说明文件的前 32 KiB，继续增长会让排在后面的规则读不到。）

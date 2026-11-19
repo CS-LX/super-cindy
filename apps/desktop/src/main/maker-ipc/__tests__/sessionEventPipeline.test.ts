@@ -1,11 +1,23 @@
+import { botLearningTracker } from '../botLearningTracker.js';
+import { learningTurnIdentity } from '../botLearningFeedback.js';
 import { beginQuietScheduledOutput } from '../../scheduler-host/silent-output.js';
 import type { TurnUsageContext } from '../turnUsageContext.js';
 import { Session, type AgentEvent, type AgentSessionHandle } from '@cindy/maker-core';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import Database from 'better-sqlite3';
+import { createDrizzleProxy } from '../../localDb/client/drizzleProxy.js';
+import type { DbTransport } from '../../localDb/client/DbTransport.js';
+import { createRemoteAgentHandle } from '../../remote-agent/controller/proxyHandle.js';
+import { ExecutorWorkspace } from '../../remote-agent/executor/workspace.js';
 import { handleSessionEvent, type SessionEventDependencies } from '../sessionEventPipeline.js';
+import { flushSessionPiTurnUsage, retryPendingPiUsageReceipts } from '../piUsageReceipts.js';
+import { setCurrentDbClient, clearCurrentDbClient } from '../../localDb/client/current.js';
+import type { DbClient } from '../../localDb/client/DbClient.js';
+import type { PiUsageWrite } from '../../localDb/worker/opHandlers/piUsageTx.js';
+import * as broadcastTap from '../../device-link/broadcast-tap.js';
 import { createBotCompactRuntimeRefreshCoordinator } from '../botCompactRuntimeRefresh.js';
 import { createContextOverflowRollover } from '../contextOverflowRollover.js';
-import { setMainLocale } from '../../i18n.js';
+import { setMainLocale } from '../../i18n.desktop.js';
 import { installSessionTurnObserver } from '../sessionTurnObserver.js';
 import { onChannelTurn } from '../channelTurnSignal.js';
 import { createSessionBindingLifecycle } from '../sessionBindingLifecycle.js';
@@ -21,6 +33,7 @@ import { createProviderGroupHeldWorkerTerminals } from '../../provider-group/hel
 import { isGatewayProxyTokenRecoveryErrorEventForProvider } from '../gatewayProxyTokenRecovery.js';
 import { GATEWAY_PROXY_TOKEN_INVALID_REASON } from '@cindy/maker-shared/error-redaction';
 import { reportCindyGatewayKeyRejectedForCurrentKey } from '../../model-access/gatewayKeyRejection.js';
+import { GIT_SETTLEMENT_SEQUENCES } from './gitBaselineSettlementSequences.js';
 
 const effects = vi.hoisted(() => {
   const calls: string[] = [];
@@ -57,9 +70,15 @@ vi.mock('../../maker-host/auth-adapters.js', () => ({
   readClaudeApiKey: effects.fn('readClaudeApiKey'),
 }));
 vi.mock('../../sessionSpendBroadcaster.js', () => ({
+  broadcastSessionSpend: effects.fn('broadcastSessionSpend'),
+  broadcastSessionTokens: effects.fn('broadcastSessionTokens'),
   recordSessionTurnSpend: effects.fn('recordSessionTurnSpend'),
   recordSessionTurnTokens: effects.fn('recordSessionTurnTokens'),
   recordSessionContextSnapshot: effects.fn('recordSessionContextSnapshot'),
+}));
+vi.mock('../../localDb/client/current.js', async importOriginal => ({
+  ...await importOriginal<typeof import('../../localDb/client/current.js')>(),
+  getDbClient: effects.fn('getDbClient'),
 }));
 vi.mock('../../turnCostBroadcaster.js', () => ({
   recordSchedulerTurnCost: effects.fn('recordSchedulerTurnCost'),
@@ -69,9 +88,6 @@ vi.mock('../../turnCostBroadcaster.js', () => ({
 }));
 vi.mock('../../modelMismatchBroadcaster.js', () => ({
   recordModelMismatchOnMessage: effects.fn('recordModelMismatchOnMessage'),
-}));
-vi.mock('../botLearningReview.js', () => ({
-  reviewTeammateLearning: effects.fn('reviewTeammateLearning'),
 }));
 vi.mock('../../usage/claudeAccountUsage.js', () => ({
   triggerClaudeAccountUsageRefresh: effects.fn('triggerClaudeAccountUsageRefresh'),
@@ -83,6 +99,8 @@ vi.mock('../../usage/modelPricing.js', () => ({
   getGatewayModelPricingForModel: effects.fn('getGatewayModelPricingForModel'),
   getModelPriceQuote: effects.fn('getModelPriceQuote'),
 }));
+// The recorders read the reference pricing core the wrapper below re-exports (3c): the same mock.
+vi.mock('../../usage/referenceModelPricingCore.js', async () => await import('../../usage/referenceModelPricing.js'));
 vi.mock('../../usage/referenceModelPricing.js', () => ({
   readModelPriceOverridesSnapshot: effects.fn('readModelPriceOverridesSnapshot'),
   getClaudeSubscriptionValuePrice: effects.fn('getClaudeSubscriptionValuePrice'),
@@ -93,6 +111,8 @@ vi.mock('../../usage/referenceModelPricing.js', () => ({
 }));
 vi.mock('../../usage/ledgerCurrency.js', () => ({
   currentLedgerCurrency: effects.fn('currentLedgerCurrency'),
+  isLedgerCurrencyKnown: effects.fn('isLedgerCurrencyKnown'),
+  LEDGER_CURRENCY_FALLBACK: 'USD',
 }));
 vi.mock('../usage.js', () => ({
   triggerClaudeSubscriptionUsageRefresh: effects.fn('triggerClaudeSubscriptionUsageRefresh'),
@@ -119,13 +139,13 @@ vi.mock('../../maker-host/active-catalog.js', () => ({
 vi.mock('../../maker-host/claude-session-route-registry.js', () => ({
   readClaudeSessionRoute: effects.fn('readClaudeSessionRoute'),
 }));
-vi.mock('../../maker-host/codex-proxy-host.js', () => ({
+vi.mock('../../maker-host/codex-proxy-host.desktop.js', () => ({
   getCodexProxyAuthInjection: effects.fn('getCodexProxyAuthInjection'),
 }));
 vi.mock('../../maker-host/provider-route.js', () => ({
   isUserProviderSession: effects.fn('isUserProviderSession'),
 }));
-vi.mock('../../messagePersistBroadcaster.js', () => ({
+vi.mock('../../messagePersistBroadcaster.desktop.js', () => ({
   reserveTurnErrorPersistId: effects.fn('reserveTurnErrorPersistId'),
   backgroundTurnPredatesSessionClear: effects.fn('backgroundTurnPredatesSessionClear'),
   noteAgentMeta: effects.fn('noteAgentMeta'),
@@ -134,11 +154,13 @@ vi.mock('../../messagePersistBroadcaster.js', () => ({
   flushAssistantBlock: effects.fn('flushAssistantBlock'),
   onAssistantTextEvent: effects.fn('onAssistantTextEvent'),
   onAssistantAttemptFailure: effects.fn('onAssistantAttemptFailure'),
+  onAssistantSamplingAccepted: effects.fn('onAssistantSamplingAccepted'),
   onStandaloneTextEvent: effects.fn('onStandaloneTextEvent'),
   onAgentTaskUpdateEvent: effects.fn('onAgentTaskUpdateEvent'),
   onThinkingEvent: effects.fn('onThinkingEvent'),
   onToolResultEvent: effects.fn('onToolResultEvent'),
   onToolResultFullEvent: effects.fn('onToolResultFullEvent'),
+  persistToolProcessMedia: effects.fn('persistToolProcessMedia'),
   onToolUseEvent: effects.fn('onToolUseEvent'),
   consumeLastAssistantPersistId: effects.fn('consumeLastAssistantPersistId'),
   consumeLastTopLevelAssistantPersistId: effects.fn('consumeLastTopLevelAssistantPersistId'),
@@ -156,7 +178,11 @@ vi.mock('../../messagePersistBroadcaster.js', () => ({
   resetTurnPersistState: effects.fn('resetTurnPersistState'),
   saveTurnStartedAtForDeferred: effects.fn('saveTurnStartedAtForDeferred'),
 }));
-vi.mock('../../maker-host/claude-session-background-activity.js', () => ({
+vi.mock('../../maker-host/claude-session-background-activity.js', async (importOriginal) => ({
+  hasWorkingBackgroundCommand: (
+    await importOriginal<typeof import('../../maker-host/claude-session-background-activity.js')>()
+  ).hasWorkingBackgroundCommand,
+  noteClaudeSessionBackgroundCommandWork: effects.fn('noteClaudeSessionBackgroundCommandWork'),
   noteClaudeSessionTurnState: effects.fn('noteClaudeSessionTurnState'),
 }));
 vi.mock('../../subagentObservationRewindFence.js', () => ({
@@ -229,7 +255,9 @@ function event(
   return { type, source: 'codex', data, ...extra } as AgentEvent;
 }
 
-function harness() {
+const actualSnapshotWriter = await vi.importActual<typeof import('../../sessionSpendBroadcaster.js')>('../../sessionSpendBroadcaster.js');
+
+function harness(remoteHandle?: AgentSessionHandle) {
   const log = {
     trace: vi.fn(),
     debug: vi.fn(),
@@ -240,7 +268,7 @@ function harness() {
     child: () => log,
   };
   const ended = deferred();
-  const handle = {
+  const handle = remoteHandle ?? {
     id: 'provider',
     agentKind: 'codex',
     model: 'test-model',
@@ -282,10 +310,8 @@ function harness() {
     deferUnsuccessfulProductTurn: (owner: Parameters<typeof failureGate.defer>[0]) => failureGate.defer(owner),
     log,
     botCompactRuntimeRefreshCoordinator: { noteBoundary: vi.fn() },
-    workingMemoryRefresh: { markCompacted: vi.fn() },
     wireNoteMemory: { reset: vi.fn() },
     attemptBotCompactRuntimeRefresh: vi.fn(),
-    botDelegationServiceHolder: { settleSession: vi.fn(async () => {}) },
     isFencedStaleSessionTerminal: vi.fn(() => false),
     redactEventForRenderer: vi.fn((value: AgentEvent): AgentEvent => ({ ...value, data: { redacted: true } })),
     interruptedTurnAutoResumeGuard: {
@@ -299,7 +325,7 @@ function harness() {
     defaultDecisionForPending: vi.fn(),
     persistInteractionDecision: vi.fn(),
     broadcastToAllWindows: effects.fn('broadcast'),
-    broadcastCodexImageAsToolResult: vi.fn(async () => {}),
+    deliverCodexGeneratedImage: vi.fn<(sessionId: string, event: AgentEvent) => Promise<readonly AgentEvent[]>>(async () => []),
     autoResumeBookkeeping: {
       discardReplacementProvenByProviderEvent: vi.fn(),
       clearFailedTurnCompletionTail: vi.fn(),
@@ -343,6 +369,7 @@ function harness() {
       isActiveTaskCoordination: vi.fn(() => false),
       getQueueControlSnapshot: vi.fn(() => ({ pendingQueue: [] as unknown[] })),
       onTurnEvent: vi.fn(),
+      bindErrorPersistId: vi.fn(),
       noteSuppressedTerminalError: vi.fn(),
       onExternalTurnSettled: vi.fn(),
       isAutoResumePending: vi.fn(() => false),
@@ -418,6 +445,7 @@ beforeEach(() => {
     effects.fn(name).mockResolvedValue(undefined);
   effects.fn('getActiveCatalog').mockReturnValue({ providers: [] });
   effects.fn('currentLedgerCurrency').mockReturnValue('USD');
+  effects.fn('isLedgerCurrencyKnown').mockReturnValue(true);
   effects.fn('reserveTurnErrorPersistId').mockImplementation(() => {
     effects.calls.push('reserve');
     return 'error-row';
@@ -443,6 +471,55 @@ function ordered(...names: string[]) {
 }
 
 describe('production Session event pipeline', () => {
+  // #8147 follow-up: the ID used by live delivery must also be retained by
+  // the coordinator so subsequent projection-only readers can deduplicate.
+  it('binds the reserved error row to the snapshot owner before broadcasting it', async () => {
+    const current = harness();
+    current.deps.redactEventForRenderer.mockImplementation(value => value);
+    try {
+      current.emit(event('error', { message: 'failed', isTerminal: true }));
+      expect(current.deps.agentInputCoordinatorHolder.bindErrorPersistId)
+        .toHaveBeenCalledWith('task', 'error-row', 'failed');
+      const delivered = current.deps.broadcastToAllWindows.mock.calls.find(
+        ([channel]) => channel === 'maker:event',
+      );
+      expect(delivered?.[1]).toMatchObject({ persistId: 'error-row' });
+    } finally { await current.dispose(); }
+  });
+
+  // #11032: safe diagnostics must reach live delivery, continuation classification
+  // and the existing persistence writer. No schema/UI/continuation policy changes.
+  it('retains gateway diagnostics for live and persisted watchdog consumers', async () => {
+    const h = harness();
+    h.deps.redactEventForRenderer.mockImplementation(value => value);
+    const data = { message: 'The model connection has been retrying for 120s without making progress. (HTTP 502)',
+      reason: 'codex_reconnect_stalled', errorStatus: 502, isTerminal: true, idleMs: 120000 };
+    try {
+      h.emit(event('error', data));
+      await microtasks();
+      expect(h.deps.agentInputCoordinatorHolder.onTurnEvent).toHaveBeenCalledWith(
+        'task', 'error', data.message, expect.objectContaining({ reason: data.reason, errorStatus: 502 }), expect.any(Object),
+      );
+      expect(h.deps.broadcastToAllWindows).toHaveBeenCalledWith('maker:event', expect.objectContaining({
+        event: expect.objectContaining({ type: 'error', data }),
+      }));
+      expect(effects.fn('onTurnErrorEvent')).toHaveBeenCalledWith('task', data, null, 'error-row');
+    } finally { await h.dispose(); }
+  });
+
+  it('accepts only provider-confirmed sampling items and releases the remainder at done', async () => {
+    const current = harness();
+    try {
+      current.emit(event('tool_result_full', { toolUseId: 'command', fullText: 'done', assistantSamplingAccepted: { agentMessageIds: ['item-a'] } }));
+      expect(effects.fn('onAssistantSamplingAccepted')).toHaveBeenCalledWith('task', ['item-a']);
+      expect(current.deps.broadcastToAllWindows).toHaveBeenCalledWith('maker:event', expect.objectContaining({ event: expect.objectContaining({ type: 'tool_result_full' }) }));
+      current.emit(event('tool_result', { toolUseIds: ['search'], summary: 'search done' }));
+      expect(effects.fn('onAssistantSamplingAccepted')).toHaveBeenCalledTimes(1);
+      current.emit(event('done', {}));
+      expect(effects.fn('onAssistantSamplingAccepted')).toHaveBeenLastCalledWith('task');
+    } finally { await current.dispose(); }
+  });
+
   it.each(['auth', 'gateway', 'overflow'] as const)(
     'commits held %s activity once at its original end only when recovery finally fails', async recovery => {
       const current = harness();
@@ -662,6 +739,42 @@ describe('production Session event pipeline', () => {
     } finally { await h.dispose(); }
   });
 
+  it('hands the coordinator the terminal error message and only bounded structured signals', async () => {
+    // Auto-resume and the usage-limit wait decide on these signals (isInterruptedTurnError,
+    // usageLimitAutoResume), and the Node Host must hand over the same ones; provider data stays bounded.
+    const h = harness();
+    h.deps.redactEventForRenderer.mockImplementation(value => value);
+    try {
+      h.emit(event('error', {
+        message: 'Upstream stream ended',
+        sdkError: 'stream_closed',
+        reason: 'upstream',
+        errorStatus: 529,
+        toolLoop: { kind: 'pingpong', count: 4, detail: 'provider text' },
+        outputLimit: { outputTokens: 64, reasoningTokens: 65 },
+        usageLimit: true,
+        usageResetAt: 1_800_000_000_000,
+        codexErrorInfo: 'usageLimitExceeded',
+        extra: 'dropped',
+      }));
+      h.emit(event('error', { message: 'Second failure', usageResetAt: Number.POSITIVE_INFINITY, toolLoop: { kind: 'other', count: 1 } }));
+      const calls = h.deps.agentInputCoordinatorHolder.onTurnEvent.mock.calls.filter(call => call[1] === 'error');
+      expect(calls.map(call => call.slice(0, 4))).toEqual([
+        ['task', 'error', 'Upstream stream ended', {
+          sdkError: 'stream_closed',
+          reason: 'upstream',
+          errorStatus: 529,
+          toolLoop: { kind: 'pingpong', count: 4 },
+          outputLimit: { outputTokens: 64 },
+          usageLimit: true,
+          usageResetAt: 1_800_000_000_000,
+          codexErrorInfo: 'usageLimitExceeded',
+        }],
+        ['task', 'error', 'Second failure', {}],
+      ]);
+    } finally { await h.dispose(); }
+  });
+
   it('suppresses scheduled content before persistence and delivery while preserving unrelated replies', async () => {
     const h = harness();
     const close = beginQuietScheduledOutput('check', 'check-run');
@@ -708,6 +821,70 @@ describe('production Session event pipeline', () => {
       expect(JSON.stringify(h.deps.broadcastToAllWindows.mock.calls)).not.toContain('redacted result');
       expect(JSON.stringify(h.deps.broadcastToAllWindows.mock.calls)).toContain('safe');
     } finally { close(); await h.dispose(); }
+  });
+
+  // #10499: host-authored notices must be localized before both banner and durable-row delivery.
+  it.each([
+    ["en", "CINDY_EXPECTED_HELPER_UNAVAILABLE", "cindy_helper is enabled but unavailable in this task. Task result reporting may be unavailable."],
+    ["en", "CINDY_EXPECTED_HELPER_UNVERIFIED", "Could not verify cindy_helper for this task. Task result reporting may be unavailable."],
+    ["zh-CN", "CINDY_EXPECTED_HELPER_UNAVAILABLE", "此任务已启用 cindy_helper，但目前不可用，任务结果可能无法回传。"],
+    ["zh-CN", "CINDY_EXPECTED_HELPER_UNVERIFIED", "未能核实此任务的 cindy_helper 是否可用，任务结果可能无法回传。"],
+    ["zh-TW", "CINDY_EXPECTED_HELPER_UNAVAILABLE", "此任務已啟用 cindy_helper，但目前無法使用，任務結果可能無法回傳。"],
+    ["zh-TW", "CINDY_EXPECTED_HELPER_UNVERIFIED", "未能確認此任務的 cindy_helper 是否可用，任務結果可能無法回傳。"],
+    ["ja", "CINDY_EXPECTED_HELPER_UNAVAILABLE", "このタスクでは cindy_helper が有効ですが、利用できません。タスクの結果を報告できない可能性があります。"],
+    ["ja", "CINDY_EXPECTED_HELPER_UNVERIFIED", "このタスクの cindy_helper が利用可能か確認できませんでした。タスクの結果を報告できない可能性があります。"],
+    ["ko", "CINDY_EXPECTED_HELPER_UNAVAILABLE", "이 작업에서 cindy_helper가 활성화되어 있지만 사용할 수 없습니다. 작업 결과를 보고하지 못할 수 있습니다."],
+    ["ko", "CINDY_EXPECTED_HELPER_UNVERIFIED", "이 작업에서 cindy_helper를 사용할 수 있는지 확인하지 못했습니다. 작업 결과를 보고하지 못할 수 있습니다."],
+    ["es", "CINDY_EXPECTED_HELPER_UNAVAILABLE", "cindy_helper está habilitado, pero no está disponible en esta tarea. Es posible que no se pueda comunicar el resultado de la tarea."],
+    ["es", "CINDY_EXPECTED_HELPER_UNVERIFIED", "No se pudo comprobar si cindy_helper está disponible en esta tarea. Es posible que no se pueda comunicar el resultado de la tarea."],
+    ["fr", "CINDY_EXPECTED_HELPER_UNAVAILABLE", "cindy_helper est activé, mais indisponible pour cette tâche. Le résultat de la tâche risque de ne pas pouvoir être transmis."],
+    ["fr", "CINDY_EXPECTED_HELPER_UNVERIFIED", "Impossible de vérifier si cindy_helper est disponible pour cette tâche. Le résultat de la tâche risque de ne pas pouvoir être transmis."],
+    ["de", "CINDY_EXPECTED_HELPER_UNAVAILABLE", "cindy_helper ist für diese Aufgabe aktiviert, aber nicht verfügbar. Das Aufgabenergebnis kann möglicherweise nicht übermittelt werden."],
+    ["de", "CINDY_EXPECTED_HELPER_UNVERIFIED", "Es konnte nicht geprüft werden, ob cindy_helper für diese Aufgabe verfügbar ist. Das Aufgabenergebnis kann möglicherweise nicht übermittelt werden."],
+    ["pt-PT", "CINDY_EXPECTED_HELPER_UNAVAILABLE", "cindy_helper está ativado, mas não está disponível nesta tarefa. Pode não ser possível comunicar o resultado da tarefa."],
+    ["pt-PT", "CINDY_EXPECTED_HELPER_UNVERIFIED", "Não foi possível verificar se cindy_helper está disponível nesta tarefa. Pode não ser possível comunicar o resultado da tarefa."],
+    ["pt-BR", "CINDY_EXPECTED_HELPER_UNAVAILABLE", "cindy_helper está ativado, mas não está disponível nesta tarefa. Talvez não seja possível comunicar o resultado da tarefa."],
+    ["pt-BR", "CINDY_EXPECTED_HELPER_UNVERIFIED", "Não foi possível verificar se cindy_helper está disponível nesta tarefa. Talvez não seja possível comunicar o resultado da tarefa."],
+    ["zh-Hant-x-lzh", "CINDY_EXPECTED_HELPER_UNAVAILABLE", "此差事已啟用 cindy_helper，然今不可用；差事結果或無法回傳。"],
+    ["zh-Hant-x-lzh", "CINDY_EXPECTED_HELPER_UNVERIFIED", "未能核實此差事之 cindy_helper 是否可用；差事結果或無法回傳。"],
+    ["zh-Hans-x-lzh", "CINDY_EXPECTED_HELPER_UNAVAILABLE", "此差事已启用 cindy_helper，然今不可用；差事结果或无法回传。"],
+    ["zh-Hans-x-lzh", "CINDY_EXPECTED_HELPER_UNVERIFIED", "未能核实此差事之 cindy_helper 是否可用；差事结果或无法回传。"],
+  ] as const)('localizes Codex helper diagnostics in %s (%s)', async (locale, code, text) => {
+    setMainLocale(locale);
+    const h = harness();
+    h.deps.redactEventForRenderer.mockImplementation((value: AgentEvent) => value);
+    try {
+      const errorData = { code, message: 'technical fallback', isTerminal: false };
+      const error = event('error', errorData, { source: 'codex' });
+      h.emit(error);
+      expect(JSON.stringify(h.deps.broadcastToAllWindows.mock.calls)).toContain(text);
+      expect(error.data).toEqual(errorData);
+      const noticeData = { code, text: 'technical fallback', isFinal: true };
+      const notice = event('text', noticeData, { source: 'codex', standaloneText: true });
+      h.emit(notice);
+      expect(effects.fn('onStandaloneTextEvent')).toHaveBeenCalledExactlyOnceWith('task', text, null);
+      expect(effects.fn('onAssistantTextEvent')).not.toHaveBeenCalled();
+      expect(effects.fn('markAssistantTurnCompleted')).not.toHaveBeenCalled();
+      expect(notice.data).toEqual(noticeData);
+      h.emit(event('text', { text: 'Actual reply', isFinal: true }, { source: 'codex' }));
+      expect(effects.fn('onAssistantTextEvent')).toHaveBeenCalledWith('task', expect.objectContaining({ text: 'Actual reply' }), null, undefined);
+      expect(h.handle.send).not.toHaveBeenCalled();
+    } finally { await h.dispose(); }
+  });
+
+  it.each([
+    { source: 'codex' as const, standalone: false },
+    { source: 'pi' as const, standalone: true },
+  ])('does not reinterpret model prose or another harness notice ($source, $standalone)', async ({ source, standalone }) => {
+    setMainLocale('zh-CN');
+    const h = harness();
+    h.deps.redactEventForRenderer.mockImplementation((value: AgentEvent) => value);
+    try {
+      const data = { code: 'CINDY_EXPECTED_HELPER_UNAVAILABLE', text: 'Original prose', isFinal: true };
+      h.emit(event('text', data, { source, ...(standalone ? { standaloneText: true as const } : {}) }));
+      if (standalone) expect(effects.fn('onStandaloneTextEvent')).toHaveBeenCalledWith('task', 'Original prose', null);
+      else expect(effects.fn('onAssistantTextEvent')).toHaveBeenCalledWith('task', data, null, undefined);
+    } finally { await h.dispose(); }
   });
 
   it('delivers Pi notices as durable rows without entering model streaming or turn bookkeeping', async () => {
@@ -1016,6 +1193,21 @@ describe('production Session event pipeline', () => {
     await h.dispose();
   });
 
+  // The Host settles the same sequences in its turn executor (apps/host input-queue.test.mjs).
+  it.each(GIT_SETTLEMENT_SEQUENCES)('settles the Git baseline of $name as the shared table says', async ({ steps, desktop }) => {
+    const h = harness();
+    h.emit(event('status', { isRunning: true }));
+    effects.calls.length = 0;
+    for (const step of steps) {
+      if (step === 'stop') continue; // abort() returning is not an event the pipeline sees.
+      if (step === 'error') h.emit(event('error', { message: 'provider failed', isTerminal: true }));
+      else h.emit(event('done', {}, step === 'continuation-done' ? { turnContinuationId: 0 } : {}));
+    }
+    await microtasks();
+    expect(effects.calls.filter(call => call === 'git-end' || call === 'git-abort').map(call => call.slice(4))).toEqual(desktop);
+    await h.dispose();
+  });
+
   it('keeps the silent-stop decision window running and rejects an unowned late terminal', async () => {
     const h = harness();
     h.emit(event('done', { silentStop: true }));
@@ -1047,6 +1239,109 @@ describe('production Session event pipeline', () => {
       await h.dispose();
     },
   );
+
+  // #10198 (unit): end-of-turn coverage missed native compaction inside a live
+  // turn. Remote poll chunks may deliver status before its cached state. Drive
+  // the real proxy -> pipeline -> writer and reopen SQLite (db tier, no files).
+  it.each([false, true])('persists remote Pi compaction across split delivery (state first=%s)', async (stateFirst) => {
+    const oldUsage = { tokenUsage: 0, costUsd: 0, contextTokens: 579216, contextWindow: 272000 };
+    const proxy = createRemoteAgentHandle({
+      started: { id: 'remote', agentKind: 'pi', model: 'test', shadowDir: '/remote', methods: [],
+        state: { usage: oldUsage, turnRunning: true } },
+      link: { live: async () => null, ensure: vi.fn(), begin: () => () => {}, close: async () => {} },
+      workspace: new ExecutorWorkspace({ workingDir: process.cwd() }),
+      recordApproval: vi.fn(), newId: () => 'request', dispose: async () => {},
+    });
+    const h = harness(proxy.handle);
+    const iterator = proxy.handle.events()[Symbol.asyncIterator]();
+    const deliver = async (value: AgentEvent) => {
+      proxy.onEvent(value);
+      const next = await iterator.next();
+      expect(next.done).toBe(false);
+      h.emit(next.value!);
+    };
+    const sqlite = new Database(':memory:');
+    sqlite.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, context_tokens INTEGER,
+      context_window INTEGER, context_window_runtime INTEGER);
+      INSERT INTO sessions VALUES ('task', 579216, 272000, 272000);`);
+    const transport: DbTransport = {
+      async send<R>(op: string, args: unknown): Promise<R> {
+        const { sql, params } = args as { sql: string; params: unknown[] };
+        const statement = sqlite.prepare(sql);
+        return (op === 'run' ? statement.run(...params) : op === 'rawGet'
+          ? statement.raw().get(...params) : statement.raw().all(...params)) as R;
+      },
+      on() {}, onTerminated() {}, async close() {},
+    };
+    const unexpectedDbCall = async (): Promise<never> => { throw new Error('Expected snapshot Drizzle path'); };
+    const db: DbClient = {
+      drizzle: createDrizzleProxy(transport),
+      query: unexpectedDbCall, queryOne: unexpectedDbCall, exec: unexpectedDbCall, tx: unexpectedDbCall,
+      vecAvailable: false, async dispose() {},
+    };
+    const writes: Promise<void>[] = [];
+    setCurrentDbClient(db, 'compaction-test');
+    effects.fn('getDbClient').mockReturnValue(db);
+    effects.fn('recordSessionContextSnapshot').mockImplementation((id, tokens, window) => {
+      effects.calls.push('recordSessionContextSnapshot');
+      const write = actualSnapshotWriter.recordSessionContextSnapshot(id as string, tokens as number, window as number);
+      writes.push(write);
+      return write;
+    });
+    try {
+      await deliver(event('status', { isRunning: true }, { source: 'pi' }));
+      const boundary = event('compact_boundary', { postTokens: 46703 }, { source: 'pi' });
+      await deliver(boundary);
+      expect(proxy.handle.getUsageSnapshot().contextTokens).toBe(579216);
+      expect(effects.fn('recordSessionContextSnapshot')).not.toHaveBeenCalled();
+      const usage = { ...oldUsage, contextTokens: 46703 };
+      if (stateFirst) proxy.onState({ usage });
+      effects.calls.length = 0;
+      await deliver(event('status', { ...usage, isRunning: true, status: 'Working…',
+        contextSnapshotAuthoritative: true }, { source: 'pi' }));
+      ordered('broadcast', 'recordSessionContextSnapshot');
+      await Promise.all(writes);
+      if (!stateFirst) proxy.onState({ usage });
+      const reopened = new Database(sqlite.serialize());
+      try {
+        expect(reopened.prepare('SELECT context_tokens, context_window, context_window_runtime FROM sessions').get()).toEqual({
+          context_tokens: 46703, context_window: 272000, context_window_runtime: 272000,
+        });
+      } finally { reopened.close(); }
+      expect(h.activity.isSessionInTurn('task')).toBe(true);
+      expect(h.deps.notifyGoalIdleAfterTurnSettled).not.toHaveBeenCalled();
+      proxy.onState({ usage: { ...usage, contextTokens: 58000 } });
+      await deliver(boundary);
+      expect(effects.fn('recordSessionContextSnapshot')).toHaveBeenCalledTimes(1);
+      await deliver(event('tool_use', { toolUseId: 'after-compact', toolName: 'read', input: {} }, { source: 'pi' }));
+      expect(effects.fn('onToolUseEvent')).toHaveBeenCalled();
+      expect(h.activity.isSessionInTurn('task')).toBe(true);
+    } finally {
+      await Promise.all(writes);
+      clearCurrentDbClient(db);
+      sqlite.close();
+      await h.dispose();
+      await iterator.return?.();
+    }
+  });
+
+  it.each([
+    ['missing', undefined, {}],
+    ['NaN', NaN, {}],
+    ['negative', -1, {}],
+    ['infinite', Infinity, {}],
+    ['old generation', 46703, { sessionTurnGeneration: -1 }],
+    ['old instance', 46703, { sessionInstanceId: 'retired-instance' }],
+    ['background', 46703, { turnScope: 'background' as const }],
+  ])('does not persist a %s compaction over active work', async (_label, postTokens, scope) => {
+    const h = harness();
+    h.emit(event('status', { isRunning: true }, { source: 'pi' }));
+    h.emit(event('compact_boundary', { postTokens }, { source: 'pi', ...scope }));
+    h.emit(event('status', { isRunning: true, status: 'Working…', contextSnapshotAuthoritative: true,
+      contextTokens: postTokens, contextWindow: 272000 }, { source: 'pi', ...scope }));
+    expect(effects.fn('recordSessionContextSnapshot')).not.toHaveBeenCalled();
+    await h.dispose();
+  });
 
   it.each([
     ['xd', 1],
@@ -1179,6 +1474,36 @@ describe('production Session event pipeline', () => {
     );
     expect(h.deps.overflowSuppressedBroadcasts.size).toBe(0);
     await h.dispose();
+  });
+
+  // The Node Host holds the same terminal errors for context recovery (apps/host context-recovery.ts
+  // holdsOverflowBroadcast); a class added here must be added there.
+  it('holds the same terminal errors as the Host context recovery', async () => {
+    // A non-literal specifier: the Host's source is loaded at run time, outside the desktop's type program.
+    const hostModule = 'context-recovery.ts';
+    const { holdsOverflowBroadcast } = await import(`../../../../../host/src/agent/${hostModule}`) as {
+      holdsOverflowBroadcast(session: { remoteHostId?: string | null }, event: AgentEvent): boolean;
+    };
+    const { CODEX_HISTORY_OVERSIZED_REASON, CONTEXT_OVERFLOW_REASON, UNSUPPORTED_REQUEST_OPTION_REASON } = await import('@cindy/maker-core');
+    const cases: Array<[string, unknown]> = [
+      ['context overflow', { reason: CONTEXT_OVERFLOW_REASON, message: 'prompt is too long' }],
+      ['context overflow by message', { message: 'prompt is too long: 210000 tokens > 200000 maximum' }],
+      ['oversized history', { reason: CODEX_HISTORY_OVERSIZED_REASON, message: 'history too large' }],
+      ['unsupported request option', { reason: UNSUPPORTED_REQUEST_OPTION_REASON, message: 'rejected option' }],
+      ['retryable overflow', { reason: CONTEXT_OVERFLOW_REASON, message: 'prompt is too long', isTerminal: false }],
+      ['ordinary failure', { message: 'boom', reason: 'sdk_crash' }],
+    ];
+    for (const [name, data] of cases) {
+      const h = harness();
+      h.activity.setSessionInTurn('task', true);
+      // Keeps a held broadcast in the map instead of the no-owner path re-sending it at once.
+      (h.deps.agentInputCoordinatorHolder as { isAutoResumeDeferred: ReturnType<typeof vi.fn> })
+        .isAutoResumeDeferred.mockReturnValue(true);
+      const terminal = event('error', data);
+      h.emit(terminal);
+      expect(holdsOverflowBroadcast(h.session, terminal), name).toBe(h.deps.overflowSuppressedBroadcasts.size === 1);
+      await h.dispose();
+    }
   });
 
   it('does not flush a stale suppressed error onto a later unrelated error', async () => {
@@ -1338,6 +1663,32 @@ describe('production Session event pipeline', () => {
       });
       expect(effects.fn('markAssistantTurnFailed')).toHaveBeenCalledWith('task', 'failed-row');
       expect(effects.fn('markAssistantTurnCompleted')).not.toHaveBeenCalled();
+      await h.dispose();
+    },
+  );
+
+  it.each(['claude-code', 'pi'] as const)(
+    'does not seal a partial %s reply as successful when shutdown cancels its turn',
+    async (source) => {
+      const h = harness();
+      h.emit(event('text', { text: 'Working on the remaining changes' }, { source }));
+      effects.fn('consumeLastTopLevelAssistantPersistId').mockReturnValueOnce('partial-row');
+      h.emit(event('done', { status: 'cancelled' }, { source }));
+      expect(effects.fn('markAssistantTurnFailed')).toHaveBeenCalledWith('task', 'partial-row');
+      expect(effects.fn('markAssistantTurnCompleted')).not.toHaveBeenCalled();
+      expect(effects.fn('onTurnErrorEvent')).not.toHaveBeenCalled();
+      await h.dispose();
+    },
+  );
+
+  it.each(['claude-code', 'pi'] as const)(
+    'keeps a normal %s reply eligible for the successful assistant seal',
+    async (source) => {
+      const h = harness();
+      effects.fn('consumeLastTopLevelAssistantPersistId').mockReturnValueOnce('completed-row');
+      h.emit(event('done', { status: 'completed' }, { source }));
+      expect(effects.fn('markAssistantTurnCompleted')).toHaveBeenCalledWith('task', 'completed-row', undefined);
+      expect(effects.fn('markAssistantTurnFailed')).not.toHaveBeenCalled();
       await h.dispose();
     },
   );
@@ -1526,16 +1877,52 @@ describe('production Session event pipeline', () => {
     await h.dispose();
   });
 
-  it.each([null, 'ssh-host'])(
-    'only records local Codex account snapshots (remote=%s)',
-    async (remoteHostId) => {
+  // 任务列表的「后台命令仍在工作」来自会话的权威后台任务快照:任务表变化与回合收尾各刷新一次
+  // (收尾先刷新再记回合结束,换代清表不带事件)。SSH 远程任务的终态可能丢在断连窗口里,不参与。
+  it.each([
+    ['local task still running a test command', null, 'work', [true, true]],
+    ['local task that only left a dev server', null, 'service', [false, false]],
+    ['SSH remote task', 'ssh-host', 'work', []],
+  ] as const)(
+    'refreshes background command work from the session snapshot: %s',
+    async (_label, remoteHostId, backgroundCommandKind, expected) => {
       const h = harness();
       Object.defineProperty(h.session, 'remoteHostId', { value: remoteHostId });
+      vi.spyOn(h.session, 'listBackgroundTasks').mockReturnValue([
+        { taskId: 'bash-1', taskType: 'local_bash', backgroundCommandKind },
+      ]);
+      h.emit(event('status', { isRunning: true }));
+      h.emit(event('agent_task_update', { provider: 'claude-code', taskId: 'bash-1', status: 'running' }));
+      h.emit(event('done', { reason: 'completed' }));
+      expect(effects.fn('noteClaudeSessionBackgroundCommandWork').mock.calls).toEqual(
+        expected.map((hasWork) => ['task', hasWork]),
+      );
+      if (expected.length > 0) {
+        const calls = effects.calls.filter(
+          (name) => name === 'noteClaudeSessionBackgroundCommandWork' || name === 'noteClaudeSessionTurnState',
+        );
+        expect(calls.slice(-2)).toEqual([
+          'noteClaudeSessionBackgroundCommandWork',
+          'noteClaudeSessionTurnState',
+        ]);
+      }
+      await h.dispose();
+    },
+  );
+
+  it.each([
+    [null, null], ['ssh-host', null], [null, 'remote-computer'], [null, 'share:example'],
+  ])(
+    'only records local Codex account snapshots (ssh=%s, device=%s)',
+    async (remoteHostId, agentDeviceId) => {
+      const h = harness();
+      Object.defineProperty(h.session, 'remoteHostId', { value: remoteHostId });
+      Object.defineProperty(h.session, 'agentDeviceId', { value: agentDeviceId });
       h.emit(event('account_usage', { remaining: 42 }));
       expect(effects.fn('recordCodexAccountUsageSnapshot')).toHaveBeenCalledTimes(
-        remoteHostId ? 0 : 1,
+        remoteHostId || agentDeviceId ? 0 : 1,
       );
-      if (!remoteHostId) ordered('broadcast', 'recordCodexAccountUsageSnapshot');
+      if (!remoteHostId && !agentDeviceId) ordered('broadcast', 'recordCodexAccountUsageSnapshot');
       await h.dispose();
     },
   );
@@ -1582,10 +1969,10 @@ describe('provider turn observer on real Session.send', () => {
   });
 
   it.each([
-    [undefined, 'provider-wake-local'],
-    [{ kind: 'user' as const, surface: 'im' as const }, 'provider-wake'],
-    [{ kind: 'scheduler' as const, scheduleId: 'hook:slack', surface: 'im' as const }, 'provider-wake'],
-  ])('inherits the dispatched origin %j when announcing a harness wake-up', async (origin, expectedSource) => {
+    [undefined, 'provider-wake-local', true],
+    [{ kind: 'user' as const, surface: 'im' as const }, 'provider-wake', false],
+    [{ kind: 'scheduler' as const, scheduleId: 'hook:slack', surface: 'im' as const }, 'provider-wake', false],
+  ])('inherits the dispatched origin %j when announcing a harness wake-up', async (origin, expectedSource, zeroOutput) => {
     const pushed: Array<AgentEvent | null> = [];
     let wake: (() => void) | null = null;
     let running = false;
@@ -1616,7 +2003,11 @@ describe('provider turn observer on real Session.send', () => {
       await microtasks();
     };
     const order: string[] = [];
-    const dispose = installSessionTurnObserver(observerDeps(), session);
+    const dispose = installSessionTurnObserver({ ...observerDeps(), onProviderInitiatedTurn: (target, generation) => {
+      expect(target).toBe(session);
+      expect(generation).toBe(session.getTurnGeneration());
+      order.push('recovery-boundary');
+    } }, session);
     const unsubscribe = onChannelTurn((target, phase, source) => {
       if (target === session) order.push(`${phase}:${source ?? 'none'}`);
     });
@@ -1625,9 +2016,11 @@ describe('provider turn observer on real Session.send', () => {
       await session.send('launch background work', { origin });
       await emit(event('text', { text: 'launched agents' }));
       await emit(event('done'));
-      await emit(event('text', { text: 'agent result' }));
+      await emit(zeroOutput
+        ? event('status', { isRunning: true, providerInitiatedTurn: true }, { source: 'claude-code' })
+        : event('text', { text: 'agent result' }));
       await emit(event('done'));
-      expect(order).toEqual(['starting:none', 'text', 'done', `starting:${expectedSource}`, 'text', 'done']);
+      expect(order).toEqual(['starting:none', 'text', 'done', 'recovery-boundary', `starting:${expectedSource}`, zeroOutput ? 'status' : 'text', 'done']);
     } finally { off(); unsubscribe(); dispose(); await session.close(); }
   });
 
@@ -1653,7 +2046,7 @@ describe('provider turn observer on real Session.send', () => {
       expect(h.handle.send).not.toHaveBeenCalled();
       gate.resolve();
       await sending;
-      expect(ready).toHaveBeenCalledWith({ providerId: 'cindy-local-llamacpp', onlyIfStopped: true });
+      expect(ready).toHaveBeenCalledWith({ providerId: 'cindy-local-llamacpp', onlyIfStopped: true, signal: expect.any(AbortSignal) });
       expect(h.handle.send).toHaveBeenCalledOnce();
       h.emit(event('done', {}));
       ready.mockRejectedValue(new Error('NOT_INSTALLED'));
@@ -1661,6 +2054,61 @@ describe('provider turn observer on real Session.send', () => {
       expect(h.handle.send).toHaveBeenCalledOnce();
     } finally {
       gate.resolve();
+      dispose();
+      await h.dispose();
+    }
+  });
+
+  // PR #9420: a cold Ollama restore must release the send reservation on Stop.
+  // Unit tier, real Session + observer: previous readiness coverage only settled the service.
+  it.each(['stop', 'pending', 'external'] as const)('cancels Ollama readiness via %s and permits another send', async (cancel) => {
+    const h = harness();
+    h.handle.abort = vi.fn(async () => undefined);
+    const deps = observerDeps();
+    const entered = deferred();
+    const release = deferred();
+    const external = new AbortController();
+    const beforeProviderStart = vi.fn();
+    const onAccepted = vi.fn();
+    let readinessSignal: AbortSignal | undefined;
+    effects.fn('getSessionProvider').mockReturnValue('cindy-local-ollama');
+    const ready = effects.fn('ensureManagedOllamaReadyForSession').mockImplementationOnce(
+      async (opts: { signal?: AbortSignal }) => {
+        readinessSignal = opts.signal;
+        entered.resolve();
+        await new Promise<void>((resolve, reject) => {
+          release.promise.then(resolve);
+          opts.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+        });
+      },
+    );
+    const phases: string[] = [];
+    const unsubscribe = onChannelTurn((_session, phase) => { phases.push(phase); });
+    const dispose = installSessionTurnObserver(deps, h.session);
+    const sending = h.session.send('cold start', { signal: external.signal, beforeProviderStart, onAccepted });
+    try {
+      await entered.promise;
+      expect(readinessSignal).toBeInstanceOf(AbortSignal);
+      if (cancel === 'stop') await h.session.abort();
+      else if (cancel === 'pending') expect(h.session.cancelPendingSend()).toBe(true);
+      else external.abort();
+      await expect(sending).resolves.toEqual({ accepted: false, reason: 'cancelled-before-dispatch' });
+      expect(readinessSignal?.aborted).toBe(true);
+      expect(h.handle.send).not.toHaveBeenCalled();
+      expect(beforeProviderStart).not.toHaveBeenCalled();
+      expect(onAccepted).not.toHaveBeenCalled();
+      expect(deps.sessionTurnLeaseTracker.markTurnStarted).not.toHaveBeenCalled();
+      expect(phases).toEqual([]);
+      expect(h.session.isTurnRunning()).toBe(false);
+      await expect(h.session.send('retry')).resolves.toEqual({ accepted: true });
+      expect(ready).toHaveBeenCalledTimes(2);
+      expect(h.handle.send).toHaveBeenCalledOnce();
+      expect(deps.sessionTurnLeaseTracker.markTurnStarted).toHaveBeenCalledOnce();
+      expect(phases).toEqual(['starting']);
+    } finally {
+      release.resolve();
+      await sending.catch(() => undefined);
+      unsubscribe();
       dispose();
       await h.dispose();
     }
@@ -1885,6 +2333,214 @@ describe('usage through the production event pipeline', () => {
     effects.fn('consumeLastAssistantPersistId').mockReturnValue('assistant-row');
   }
 
+  // #8887: production pipeline, unit tier. A request followed by a blocked
+  // price lookup must commit tokens now, retain its owner, and drain at teardown.
+  it('persists Pi requests before settlement and drains the captured owner while pricing waits', async () => {
+    const h = harness();
+    pricing(false);
+    const writes = vi.fn(async () => ({ changed: true }));
+    const otherWrites = vi.fn(async () => ({ changed: true }));
+    effects.fn('getDbClient').mockReturnValue({ tx: writes, queryOne: async () => ({ total: 130, legacy: 0.2, amount: 0.1, currency: 'USD', approximate: 0 }) });
+    let release!: (value: unknown) => void;
+    effects.fn('getGatewayModelPricingForModel').mockReturnValue(new Promise(resolve => { release = resolve; }));
+    const receiptUsage = { ...usage('pi'), settlementId: 'receipt-turn', receipts: [
+      { ...segment, recordedAt: Date.now(), id: 'pi:1' },
+    ] };
+    h.emit(event('account_usage', { type: 'pi/request_usage', usage: receiptUsage }, { source: 'pi' }));
+    await microtasks();
+    expect(writes).toHaveBeenCalledWith('usage.recordPiUsage', [expect.objectContaining({ amount: null, inputTokens: 100 })]);
+    expect(effects.fn('recordModelTurnUsage')).not.toHaveBeenCalled();
+    let drained = false;
+    const draining = flushSessionPiTurnUsage().then(() => { drained = true; });
+    effects.fn('getDbClient').mockReturnValue({ tx: otherWrites });
+    await microtasks();
+    expect(drained).toBe(false);
+    release({ xd: { 'test-model': effects.fn('getModelPriceQuote')() } });
+    await draining;
+    expect(otherWrites).not.toHaveBeenCalled();
+    expect(writes).toHaveBeenCalledTimes(2);
+    expect(writes.mock.calls[1]).toEqual(['usage.recordPiUsage', [expect.objectContaining({ amount: expect.any(Number) })]]);
+    expect(effects.fn('broadcastSessionSpend')).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: h.session.id, totalCostUsd: expect.closeTo(0.3),
+    }), expect.anything());
+    await h.dispose();
+  });
+
+  it('settles Pi error and done receipts without the legacy aggregate double-count path', async () => {
+    const h = harness();
+    pricing(false);
+    const writes = vi.fn(async () => ({ changed: true }));
+    effects.fn('getDbClient').mockReturnValue({ tx: writes, queryOne: async () => ({ total: 130 }) });
+    const receiptUsage = { ...usage('pi'), settlementId: 'paired-turn', receipts: [
+      { ...segment, recordedAt: Date.now(), id: 'pi:1' },
+    ] };
+    h.emit(event('error', { isTerminal: true, message: 'quota exceeded', usage: receiptUsage }, { source: 'pi' }));
+    h.emit(event('done', { status: 'failed', usage: receiptUsage }, { source: 'pi' }));
+    await flushSessionPiTurnUsage();
+    expect(writes).toHaveBeenCalled();
+    expect(effects.fn('recordModelTurnUsage')).not.toHaveBeenCalled();
+    expect(effects.fn('recordSessionTurnTokens')).not.toHaveBeenCalled();
+    expect(effects.fn('recordTurnSpend')).not.toHaveBeenCalled();
+    expect(effects.fn('recordSchedulerTurnCost')).toHaveBeenCalledTimes(1);
+    await h.dispose();
+  });
+
+  it('leaves unavailable Pi pricing pending so terminal replay can finish it', async () => {
+    const h = harness();
+    pricing(false);
+    const quote = effects.fn('getModelPriceQuote')();
+    effects.fn('getGatewayModelPricingForModel').mockResolvedValue(null);
+    const writes = vi.fn(async () => ({ changed: true }));
+    effects.fn('getDbClient').mockReturnValue({ tx: writes, queryOne: async () => null });
+    const receiptUsage = { ...usage('pi'), settlementId: 'missing-quote', receipts: [
+      { ...segment, recordedAt: Date.now(), id: 'pi:1' },
+    ] };
+    h.emit(event('account_usage', { type: 'pi/request_usage', usage: receiptUsage }, { source: 'pi' }));
+    await flushSessionPiTurnUsage();
+    expect(writes).toHaveBeenCalledTimes(1);
+    expect(writes.mock.calls[0]).toEqual(['usage.recordPiUsage', [expect.objectContaining({ amount: null })]]);
+    effects.fn('getGatewayModelPricingForModel').mockResolvedValue({ xd: { 'test-model': quote } });
+    h.emit(event('done', { usage: receiptUsage }, { source: 'pi' }));
+    await flushSessionPiTurnUsage();
+    expect(writes.mock.calls[2]).toEqual(['usage.recordPiUsage', [expect.objectContaining({ amount: expect.any(Number), actualCost: true })]]);
+    await h.dispose();
+  });
+
+  // #9030 review P2, unit: a resolved managed-provider reference estimate is
+  // intentionally message-only, whereas a missing quote must remain recoverable.
+  it.each(['estimate', 'missing'] as const)('finalizes only resolved managed-provider receipts (%s)', async mode => {
+    const h = harness();
+    pricing(false);
+    effects.fn('getSessionProvider').mockReturnValue('managed-provider');
+    effects.fn('isUserProviderSession').mockReturnValue(true);
+    effects.fn('getActiveCatalog').mockReturnValue({ providers: [
+      { id: 'managed-provider', auth: { method: 'api-key' }, access: { kind: 'managed' } },
+    ] });
+    const quote = {
+      providerId: 'managed-provider', modelId: 'test-model', currency: 'USD',
+      source: 'provider-reference', inputPerMtok: 1, outputPerMtok: 2, cacheReadPerMtok: 0.1,
+    };
+    effects.fn('getReferenceModelPricing').mockReturnValue(mode === 'missing' ? {} : {
+      'managed-provider': { 'test-model': quote },
+    });
+    const writes = vi.fn(async (_name: string, _rows: PiUsageWrite[]) => ({ changed: true }));
+    effects.fn('getDbClient').mockReturnValue({ tx: writes, queryOne: async () => null });
+    h.emit(event('account_usage', { usage: { settlementId: 'managed-turn', receipts: [
+      { ...segment, recordedAt: Date.now(), id: 'pi:managed' },
+    ] } }, { source: 'pi' }));
+    await flushSessionPiTurnUsage();
+    expect(writes).toHaveBeenCalledTimes(mode === 'estimate' ? 2 : 1);
+    expect(writes).toHaveBeenLastCalledWith('usage.recordPiUsage', [expect.objectContaining({
+      amount: mode === 'estimate' ? 0 : null, actualCost: false,
+    })]);
+    expect(effects.fn('broadcastSessionSpend')).not.toHaveBeenCalled();
+    await h.dispose();
+  });
+
+  // #9030 review P1, unit: the existing price-delay test keeps USD throughout.
+  // Use the production pipeline to prove that currency recovery does not freeze
+  // fallback USD into a receipt, either within a write or across product turns.
+  it.each(['during-write', 'next-turn', 'terminal-replay'] as const)(
+    'prices Pi subscription receipts in the recovered account currency (%s)', async mode => {
+      const h = harness();
+      pricing(true);
+      effects.fn('isLedgerCurrencyKnown').mockReturnValue(false);
+      let release!: (result: { changed: boolean }) => void;
+      const writes = vi.fn(async () => ({ changed: true }));
+      if (mode === 'during-write') writes.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+      effects.fn('getDbClient').mockReturnValue({ tx: writes, queryOne: async () => null });
+      const receiptUsage = { ...usage('pi'), settlementId: 'currency-turn-1', receipts: [
+        { ...segment, recordedAt: Date.now(), id: 'pi:1' },
+      ] };
+      h.emit(event('account_usage', { type: 'pi/request_usage', usage: receiptUsage }, { source: 'pi' }));
+      if (mode !== 'during-write') {
+        await flushSessionPiTurnUsage();
+        // Unknown currency is pending, not a final USD estimate.
+        expect(writes.mock.calls.every(call => (call as unknown as [string, Array<{ amount: unknown }>])[1]
+          .every(row => row.amount === null))).toBe(true);
+      }
+      effects.fn('currentLedgerCurrency').mockReturnValue('CNY');
+      effects.fn('isLedgerCurrencyKnown').mockReturnValue(true);
+      if (mode === 'during-write') release({ changed: true });
+      else h.emit(event(mode === 'terminal-replay' ? 'done' : 'account_usage', {
+        usage: { ...receiptUsage, settlementId: mode === 'next-turn' ? 'currency-turn-2' : receiptUsage.settlementId },
+      }, { source: 'pi' }));
+      await flushSessionPiTurnUsage();
+      expect(writes).toHaveBeenLastCalledWith('usage.recordPiUsage', [expect.objectContaining({
+        currency: 'CNY', amount: expect.any(Number), actualCost: false,
+      })]);
+      await h.dispose();
+    },
+  );
+
+  it('keeps a confirmed Pi currency with its owner when a late write crosses an account boundary', async () => {
+    const h = harness();
+    pricing(true);
+    const currentScope = vi.spyOn(broadcastTap, 'isDataOwnerBroadcastScopeCurrent').mockReturnValue(true);
+    let release!: (result: { changed: boolean }) => void;
+    const writes = vi.fn(async () => ({ changed: true }))
+      .mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    effects.fn('getDbClient').mockReturnValue({ tx: writes, queryOne: async () => null });
+    try {
+      h.emit(event('account_usage', { usage: { settlementId: 'owner-currency', receipts: [
+        { ...segment, recordedAt: Date.now(), id: 'pi:1' },
+      ] } }, { source: 'pi' }));
+      currentScope.mockReturnValue(false);
+      effects.fn('currentLedgerCurrency').mockReturnValue('CNY');
+      release({ changed: true });
+      await flushSessionPiTurnUsage();
+      expect(writes).toHaveBeenLastCalledWith('usage.recordPiUsage', [expect.objectContaining({
+        currency: 'USD', amount: expect.any(Number), actualCost: false,
+      })]);
+    } finally { currentScope.mockRestore(); await h.dispose(); }
+  });
+
+  // #9030 P1, unit: exercise the startup/catalog-recovery entry without a live
+  // Session or terminal replay, including owner changes during async pricing.
+  it.each(['recover', 'owner-switch', 'unavailable'] as const)('recovers durable Pi receipts without a terminal event (%s)', async mode => {
+    const h = harness();
+    pricing(false);
+    const quote = effects.fn('getModelPriceQuote')();
+    effects.fn('getGatewayModelPricingForModel').mockResolvedValue(null);
+    const writes = vi.fn(async (_name: string, _rows: PiUsageWrite[]) => ({ changed: true }));
+    effects.fn('getDbClient').mockReturnValue({ tx: writes, queryOne: async () => null });
+    h.emit(event('account_usage', { usage: { settlementId: 'recover-turn', receipts: [
+      { ...segment, recordedAt: Date.now(), id: 'pi:recover' },
+    ] } }, { source: 'pi' }));
+    await flushSessionPiTurnUsage();
+    const saved = JSON.parse(writes.mock.calls[0][1][0].pricingPayload!);
+    // A later timezone change must not move the money to a different day.
+    saved.day = '2020-01-01';
+    await h.dispose();
+    const pendingRow = { rowId: 1, sessionId: 'task', settlementId: 'recover-turn', receiptId: 'pi:recover', payload: JSON.stringify(saved) };
+    const replayWrites = vi.fn(async (_name: string, _rows: PiUsageWrite[]) => ({ changed: true }));
+    const rows = mode === 'unavailable' ? Array.from({ length: 20 }, (_, index) => ({ ...pendingRow, rowId: index + 1 })) : [pendingRow];
+    const query = vi.fn(async (_sql: string, params: number[]) => params[0] === 0 ? rows : []);
+    const db = { tx: replayWrites, query, queryOne: async () => null } as unknown as DbClient;
+    setCurrentDbClient(db, 'pi-recovery-owner');
+    let release!: (value: unknown) => void;
+    effects.fn('getGatewayModelPricing').mockReturnValue(new Promise(resolve => { release = resolve; }));
+    effects.fn('getGatewayModelPricingForModel').mockClear();
+    effects.fn('broadcastSessionTokens').mockClear();
+    effects.fn('rebroadcastTodaySpend').mockClear();
+    try {
+      const recovery = retryPendingPiUsageReceipts();
+      await microtasks();
+      expect(replayWrites).not.toHaveBeenCalled();
+      if (mode === 'owner-switch') clearCurrentDbClient();
+      release(mode === 'unavailable' ? null : { xd: { 'test-model': quote } });
+      await recovery;
+      expect(replayWrites).toHaveBeenCalledTimes(mode === 'recover' ? 1 : 0);
+      expect(effects.fn('getGatewayModelPricing')).toHaveBeenCalledTimes(1);
+      expect(effects.fn('getGatewayModelPricingForModel')).not.toHaveBeenCalled();
+      expect(effects.fn('broadcastSessionTokens')).not.toHaveBeenCalled();
+      expect(effects.fn('rebroadcastTodaySpend')).toHaveBeenCalledTimes(mode === 'recover' ? 1 : 0);
+      if (mode === 'recover') expect(replayWrites).toHaveBeenLastCalledWith('usage.recordPiUsage', [expect.objectContaining({
+        amount: expect.any(Number), actualCost: true, day: '2020-01-01', receiptId: 'pi:recover',
+      })]);
+    } finally { clearCurrentDbClient(db); await flushSessionPiTurnUsage(); }
+  });
+
   it.each(['priced', 'missing-write-price', 'legacy-summary'] as const)(
     'preserves Codex cache writes without guessing cost (%s)', async (mode) => {
       const h = harness();
@@ -1936,7 +2592,7 @@ describe('usage through the production event pipeline', () => {
     async (source, subscription) => {
       const h = harness();
       pricing(subscription);
-      h.emit(event('done', { usage: usage(source) }, { source }));
+      h.emit(event('done', { usage: { ...usage(source), reasoningTokens: 5 } }, { source }));
       await microtasks();
       expect(effects.fn('recordSessionTurnTokens')).toHaveBeenCalledWith('task', 130);
       expect(effects.fn('recordModelTurnUsage')).toHaveBeenCalledWith(
@@ -1954,6 +2610,21 @@ describe('usage through the production event pipeline', () => {
       );
       expect(effects.fn('recordTurnSpend')).toHaveBeenCalledTimes(subscription ? 0 : 1);
       expect(effects.fn('recordSessionTurnSpend')).toHaveBeenCalledTimes(subscription ? 0 : 1);
+      if (source === 'codex') {
+        expect(effects.fn('recordModelTurnUsage')).toHaveBeenCalledTimes(2);
+        expect(effects.fn('recordModelTurnUsage')).toHaveBeenLastCalledWith(expect.objectContaining({
+          model: `test-model#billing=${subscription ? 'subscription' : 'api'}`,
+          money: expect.objectContaining({ kind: subscription ? 'value-estimate' : 'actual-cost' }),
+          inputTokensDelta: 0, outputTokensDelta: 0, cacheReadTokensDelta: 0, cacheCreateTokensDelta: 0,
+        }));
+        expect(effects.fn('recordSchedulerTurnCost')).toHaveBeenCalledWith(expect.objectContaining({
+          turnUsageDetails: expect.objectContaining({
+            providerId: subscription ? 'openai' : 'xd',
+            billingSource: subscription ? 'subscription' : 'cindy-ai',
+          }),
+        }));
+        expect(effects.fn('triggerClaudeAccountUsageRefresh')).toHaveBeenCalledTimes(subscription ? 0 : 1);
+      }
       ordered('broadcast', 'recordSessionTurnTokens');
       await h.dispose();
     },
@@ -2085,6 +2756,107 @@ describe('usage through the production event pipeline', () => {
       await h.dispose();
     },
   );
+
+  // Unit regression: SSH-only coverage above did not check billing identity or
+  // device-link runs. A remote OpenAI done with local env-key must retain tokens
+  // without inventing gateway spend, subscription value, or local quota traffic.
+  it.each(([
+    ['agentDeviceId', 'remote-computer', 'openai', 'test-model'],
+    ['agentDeviceId', 'share:example', 'xd', 'codex/test-model'],
+    ['agentDeviceId', 'remote-computer', 'custom-api', 'test-model'],
+    ['agentDeviceId', 'remote-computer', 'xai', 'xai/grok-4.6'],
+    ['remoteHostId', 'ssh-host', 'openai', 'test-model'],
+  ] as const).flatMap(row => ['env-key', 'oauth-bearer'].map(auth => [...row, auth] as const)))(
+    'keeps remote Codex billing unknown (%s, %s, %s, %s, local %s)',
+    async (location, remoteId, providerId, model, auth) => {
+      const h = harness();
+      pricing(false);
+      Object.defineProperty(h.session, location, { value: remoteId });
+      effects.fn('getSessionProvider').mockReturnValue(providerId);
+      effects.fn('getCodexProxyAuthInjection').mockReturnValue(auth);
+      effects.fn('readClaudeApiKey').mockReturnValue('test-key');
+      // A same-named local subscription is not evidence about the remote route.
+      effects.fn('getActiveCatalog').mockReturnValue({ providers: [
+        { id: providerId, auth: { method: 'oauth' }, access: { kind: 'subscription' } },
+      ] });
+      h.deps.readSessionModelForUsage.mockResolvedValue(model);
+      h.emit(event('done', { usage: usage('codex') }, {
+        turnOrigin: { kind: 'scheduler', scheduleId: 'test-schedule', scheduleName: 'Test', runId: 'test-run' },
+      }));
+      await microtasks();
+      expect(effects.fn('recordSessionTurnTokens')).toHaveBeenCalledWith('task', 130);
+      expect(effects.fn('recordModelTurnUsage')).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        model, money: undefined, inputTokensDelta: 100, outputTokensDelta: 20, cacheReadTokensDelta: 10,
+      }));
+      expect(effects.fn('recordTurnUsageOnMessage')).toHaveBeenCalledWith(expect.objectContaining({
+        clientId: 'assistant-row',
+        turnUsageDetails: expect.objectContaining({ providerId, billingSource: 'unknown', totalTokens: 130 }),
+      }));
+      for (const name of ['recordTurnSpend', 'recordSessionTurnSpend', 'recordSchedulerTurnCost',
+        'getCodexProxyAuthInjection', 'readClaudeApiKey', 'getGatewayModelPricingForModel',
+        'getReferenceModelPricing', 'triggerClaudeAccountUsageRefresh',
+        'triggerClaudeSubscriptionUsageRefresh', 'triggerXaiSubscriptionUsageRefresh']) {
+        expect(effects.fn(name), name).not.toHaveBeenCalled();
+      }
+      await h.dispose();
+    },
+  );
+
+  it.each(['agentDeviceId', 'remoteHostId'] as const)(
+    'retains remote Codex tokens without local quota fallback when model lookup rejects (%s)', async location => {
+      const h = harness();
+      pricing(false);
+      Object.defineProperty(h.session, location, { value: 'remote-computer' });
+      effects.fn('readClaudeApiKey').mockReturnValue('test-key');
+      h.deps.readSessionModelForUsage.mockRejectedValue(new Error('model unavailable'));
+      h.emit(event('done', { usage: usage('codex') }));
+      await microtasks();
+      expect(effects.fn('recordModelTurnUsage')).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        model: 'unknown', money: undefined, inputTokensDelta: 100, outputTokensDelta: 20,
+      }));
+      expect(effects.fn('recordTurnUsageOnMessage')).toHaveBeenCalledWith(expect.objectContaining({
+        turnUsageDetails: expect.objectContaining({ providerId: 'xd', billingSource: 'unknown', totalTokens: 130 }),
+      }));
+      expect(effects.fn('triggerClaudeAccountUsageRefresh')).not.toHaveBeenCalled();
+      expect(effects.fn('readClaudeApiKey')).not.toHaveBeenCalled();
+      expect(effects.fn('recordSchedulerTurnCost')).not.toHaveBeenCalled();
+      await h.dispose();
+    },
+  );
+
+  // Replaces the source-text Codex guard in makerEventHotPathOrdering.test.ts.
+  // Unit: a delayed gateway quote must not delay token persistence or count the
+  // same tokens again when cost arrives. Immediate-price coverage misses this.
+  it('persists Codex tokens before a cold price lookup and later writes only money', async () => {
+    const h = harness();
+    pricing(false);
+    const pendingPrice = deferred<unknown>();
+    effects.fn('getGatewayModelPricingForModel').mockReturnValue(pendingPrice.promise);
+    h.emit(event('done', { usage: { ...usage('codex'), reasoningTokens: 5 } }));
+    await microtasks();
+    expect(effects.fn('recordSessionTurnTokens')).toHaveBeenCalledExactlyOnceWith('task', 130);
+    expect(effects.fn('recordModelTurnUsage')).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+      model: 'test-model#billing=api', money: undefined,
+      inputTokensDelta: 100, outputTokensDelta: 20, cacheReadTokensDelta: 10, cacheCreateTokensDelta: 0,
+    }));
+    expect(effects.fn('rebroadcastCodexTodayUsage')).toHaveBeenCalledOnce();
+    expect(effects.fn('recordTurnSpend')).not.toHaveBeenCalled();
+    expect(effects.fn('recordSchedulerTurnCost')).not.toHaveBeenCalled();
+    pendingPrice.resolve({});
+    await microtasks();
+    expect(effects.fn('recordModelTurnUsage')).toHaveBeenCalledTimes(2);
+    expect(effects.fn('recordModelTurnUsage')).toHaveBeenLastCalledWith(expect.objectContaining({
+      model: 'test-model#billing=api', money: expect.objectContaining({ kind: 'actual-cost' }),
+      inputTokensDelta: 0, outputTokensDelta: 0, cacheReadTokensDelta: 0, cacheCreateTokensDelta: 0,
+    }));
+    expect(effects.fn('recordSessionTurnTokens')).toHaveBeenCalledOnce();
+    expect(effects.fn('recordTurnSpend')).toHaveBeenCalledOnce();
+    expect(effects.fn('recordSessionTurnSpend')).toHaveBeenCalledOnce();
+    expect(effects.fn('recordSchedulerTurnCost')).toHaveBeenCalledWith(expect.objectContaining({
+      clientId: 'assistant-row', money: expect.objectContaining({ kind: 'actual-cost' }),
+    }));
+    await h.dispose();
+  });
 
   it.each(['codex', 'pi'] as const)(
     'retains %s token facts when pricing rejects',
@@ -2249,24 +3021,6 @@ describe('usage through the production event pipeline', () => {
 
 
 describe('Bot adapters in the shared event pipeline', () => {
-  it.each(['a long but incomplete answer', ''])('settles output-limit with its available result (%j) before the paired done', async (result) => {
-    const h = harness();
-    h.emit(event('error', {
-      reason: 'output-limit', message: 'Pi reached the model output limit.',
-      isTerminal: true, result,
-    }, { source: 'pi', sessionTurnGeneration: 4 }));
-    await microtasks();
-    expect(h.deps.botDelegationServiceHolder.settleSession).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-      childSessionId: 'task', outcome: 'error', resultText: result,
-      error: 'Pi reached the model output limit.',
-    }));
-    h.deps.autoResumeBookkeeping.consumeFailedTurnCompletionTail.mockReturnValue(true);
-    h.emit(event('done', { status: 'failed', result }, { source: 'pi', sessionTurnGeneration: 4 }));
-    await microtasks();
-    expect(h.deps.botDelegationServiceHolder.settleSession).toHaveBeenCalledOnce();
-    await h.dispose();
-  });
-
   it('keeps peer replies private in persistence and broadcast before done clears the input', () => {
     const h = harness();
     h.deps.agentInputCoordinatorHolder.getActiveInputClientId.mockReturnValue('bot-dm:thread:delivery');
@@ -2506,17 +3260,12 @@ describe('Bot adapters in the shared event pipeline', () => {
     h.deps.attemptBotCompactRuntimeRefresh.mockImplementation(() => { void coordinator.attempt(h.session); });
     h.emit(event('compact_boundary'));
     expect(h.deps.botCompactRuntimeRefreshCoordinator.noteBoundary).not.toHaveBeenCalled();
-    // 原生摘要可能丢掉账本内容:下一次发送补一份工作记忆。
-    expect(h.deps.workingMemoryRefresh.markCompacted).toHaveBeenCalledWith('task');
     // 原生摘要可能丢掉了环境说明:下一轮整体重发。
     expect(h.deps.wireNoteMemory.reset).toHaveBeenCalledWith('task');
     expect(h.deps.attemptBotCompactRuntimeRefresh).not.toHaveBeenCalled();
     h.deps.agentInputCoordinatorHolder.getQueueControlSnapshot.mockReturnValue({ pendingQueue: [{}] });
     h.emit(event('done', { result: 'first result' }));
     await microtasks();
-    expect(h.deps.botDelegationServiceHolder.settleSession).toHaveBeenCalledWith(expect.objectContaining({
-      childSessionId: 'task', resultText: 'first result', hadPendingInputAtTerminal: true,
-    }));
     expect(h.deps.attemptBotCompactRuntimeRefresh).toHaveBeenCalledWith(h.session, 'event:done');
     expect(close).not.toHaveBeenCalled();
     expect(bootstrap).not.toHaveBeenCalled();
@@ -2588,4 +3337,129 @@ it.each([true, false])('settles only the claimed broadcast after duplicate termi
   expect(effects.fn('onTurnErrorEvent')).toHaveBeenCalledTimes(recovered ? 0 : 1);
   if (!recovered) expect(effects.fn('broadcast').mock.calls.some(call => call[1]?.event?.sessionInstanceId === 'old')).toBe(true);
   await h.dispose();
+});
+
+describe('Codex generated images through the production event pipeline', () => {
+  // IM / hook replies subscribe to the same Session after the wire listener.
+  // The host stores a Codex native image asynchronously; before the stream
+  // hold, `done` reached them first and the image was never attached.
+  function pushableCodexSession(log: SessionEventDependencies['log']) {
+    const pushed: Array<AgentEvent | null> = [];
+    let wake: (() => void) | null = null;
+    let running = false;
+    const handle = {
+      id: 'provider', agentKind: 'codex', model: 'test-model',
+      send: vi.fn(async () => { running = true; }),
+      close: vi.fn(async () => { pushed.push(null); wake?.(); }),
+      isTurnRunning: () => running,
+      setInteractionResolver: vi.fn(),
+      async *events() {
+        for (;;) {
+          while (pushed.length === 0) await new Promise<void>((resolve) => { wake = resolve; });
+          const next = pushed.shift()!;
+          if (next === null) return;
+          yield next;
+        }
+      },
+    } as unknown as AgentSessionHandle;
+    const session = new Session({ id: 'task', agentKind: 'codex', workDir: '/unused', handle,
+      capabilities: {} as never, logger: log as never, turnStallMs: 0 });
+    const queue = (...values: AgentEvent[]) => {
+      for (const value of values) {
+        if (value.type === 'done') running = false;
+        pushed.push(value);
+      }
+      wake?.();
+    };
+    return { session, queue };
+  }
+
+  const image = event('image', { kind: 'generation', blockId: 'ig-1' });
+  const stored = [
+    event('tool_use', { toolUseId: 'codex-image-1', toolName: 'imagegen', input: {} }),
+    event('tool_result_full', {
+      toolUseId: 'codex-image-1',
+      fullText: JSON.stringify({ ok: true, xdt_image_url: 'cindy-media://blobs/a.png' }),
+      isError: false,
+    }),
+    event('tool_result', { toolUseIds: ['codex-image-1'], summary: 'stored' }),
+  ];
+
+  it('delivers the stored image to later listeners before done without persisting it again', async () => {
+    const h = harness();
+    const { session, queue } = pushableCodexSession(h.deps.log);
+    h.deps.deliverCodexGeneratedImage.mockResolvedValue(stored);
+    const offWire = session.onEvent((value) => handleSessionEvent(h.dependencies, session, value));
+    const im: AgentEvent[] = [];
+    const offIm = session.onEvent((value) => im.push(value));
+    try {
+      await session.send('draw the design');
+      effects.fn('broadcast').mockClear();
+      queue(image, event('done', {}));
+      await vi.waitFor(() => expect(im.map((value) => value.type)).toContain('done'));
+
+      expect(im.map((value) => value.type)).toEqual(['image', 'tool_use', 'tool_result_full', 'tool_result', 'done']);
+      expect(im[2].data).toMatchObject({ fullText: expect.stringContaining('cindy-media://blobs/a.png') });
+      expect(h.deps.deliverCodexGeneratedImage).toHaveBeenCalledExactlyOnceWith('task', expect.objectContaining({ type: 'image' }));
+      expect(effects.fn('onToolUseEvent')).not.toHaveBeenCalled();
+      expect(effects.fn('onToolResultFullEvent')).not.toHaveBeenCalled();
+      expect(effects.fn('onToolResultEvent')).not.toHaveBeenCalled();
+      const broadcastTypes = effects.fn('broadcast').mock.calls
+        .map(([, payload]) => (payload as { event?: AgentEvent } | undefined)?.event?.type);
+      expect(broadcastTypes).not.toContain('tool_use');
+      expect(broadcastTypes).not.toContain('tool_result_full');
+    } finally { offIm(); offWire(); await session.close(); await h.dispose(); }
+  });
+
+  it('neither delivers nor holds a quiet scheduled image', async () => {
+    const h = harness();
+    const { session, queue } = pushableCodexSession(h.deps.log);
+    const close = beginQuietScheduledOutput('check', 'image-run');
+    const origin = { kind: 'scheduler' as const, scheduleId: 'check', scheduleName: 'Check', runId: 'image-run' };
+    const offWire = session.onEvent((value) => handleSessionEvent(h.dependencies, session, value));
+    const seen: string[] = [];
+    const offSeen = session.onEvent((value) => seen.push(value.type));
+    try {
+      await session.send('scheduled check', { origin });
+      queue(image, event('done', {}));
+      await vi.waitFor(() => expect(seen).toContain('done'));
+      expect(seen).toEqual(['image', 'done']);
+      expect(h.deps.deliverCodexGeneratedImage).not.toHaveBeenCalled();
+    } finally { close(); offSeen(); offWire(); await session.close(); await h.dispose(); }
+  });
+});
+
+// #10318: exercise the real pipeline and feedback adapter, not just tracker helpers.
+// One paired Codex write must retain its path across preparation/persistence; stale,
+// child and background traffic must never feed a foreground memory receipt (unit).
+describe('native memory receipt event wiring', () => {
+  it.each(['foreground', 'failed', 'background', 'child', 'old-instance', 'old-generation'])
+  ('keeps memory feedback scoped for %s events', async mode => {
+    const h = harness();
+    const publish = vi.fn();
+    const receipt = { kind: 'memory' as const, key: 'user_tea.md', title: 'Tea', action: 'created' as const };
+    const read = vi.fn(async (paths: readonly string[]) => paths.length ? [receipt] : []);
+    const identity = learningTurnIdentity(h.session);
+    botLearningTracker.markProjectTeammate(h.session.id, read);
+    botLearningTracker.observe(h.session.id, identity, publish);
+    const extra = mode === 'background' ? { turnScope: 'background' as const }
+      : mode === 'child' ? { agentMeta: { parentUuid: 'child' } }
+        : mode === 'old-instance' ? { sessionInstanceId: 'replaced' }
+          : mode === 'old-generation' ? { sessionTurnGeneration: h.session.getTurnGeneration() - 1 } : {};
+    try {
+      h.emit({ type: 'tool_use', source: 'codex', ...extra,
+        data: { toolUseId: 'write-memory', toolName: 'file_change',
+          input: { changes: [{ path: '.cindy/memory/user_tea.md', kind: { type: 'add' } }] } } });
+      h.emit({ type: 'tool_result_full', source: 'codex', ...extra,
+        data: { toolUseId: 'write-memory', fullText: 'add memory', isError: mode === 'failed' } });
+      botLearningTracker.seal(h.session.id, identity, 'reply');
+      await read.mock.results[0].value;
+      expect(read).toHaveBeenCalledWith(mode === 'foreground' ? ['.cindy/memory/user_tea.md'] : []);
+      if (mode === 'foreground') expect(publish).toHaveBeenCalledWith('reply', [receipt]);
+      else expect(publish).not.toHaveBeenCalled();
+    } finally {
+      botLearningTracker.markProjectTeammate(h.session.id);
+      await h.session.close();
+    }
+  });
 });

@@ -9,8 +9,10 @@ import { DeviceLinkError } from '@cindy/device-link';
 const LOW_PRIORITY_READ_CHANNELS: ReadonlySet<string> = new Set([
   'git-context:pr-refs:list',
   'git-context:pr-status',
+  'git-context:mr-status',
   'maker:remote-resources:manifest',
   'maker:remote-resources:list',
+  'sidebar-settings:get-project-order',
 ]);
 
 export const LOW_PRIORITY_READ_MAX_ACTIVE = 4;

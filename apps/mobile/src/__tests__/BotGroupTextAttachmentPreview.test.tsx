@@ -1,3 +1,4 @@
+vi.mock("@/session/usePreviewChromeFrame", () => ({ usePreviewChromeFrame: () => ({ documentContentTop: 64, documentHeaderHeight: 64, top: 0, bottom: 0, left: 12, right: 12, sharedStatusRow: false }) }));
 // @vitest-environment jsdom
 import { act, createElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,6 +15,13 @@ import {
 const downloadState = vi.hoisted(() => ({ text: '', tooLargeCount: 0, failedCount: 0 }));
 const nativeList = vi.hoisted(() => ({ scrollToIndex: vi.fn() }));
 
+// 预览外壳的液态玻璃与系统菜单:测试环境没有原生模块,走实色底与底部面板回退。
+vi.mock('expo-glass-effect', () => ({ GlassView: ({ children }: any) => children }));
+vi.mock('@/session/useLiquidGlassAvailable', () => ({ useLiquidGlassAvailable: () => false }));
+vi.mock('@/platform/chrome', () => ({
+  NativePullDownMenu: ({ children }: any) => children,
+  usesNativePullDownMenu: () => false,
+}));
 vi.mock('@/session/remoteMediaDiskCacheExpo', () => ({ withDownloadedRemoteMediaFile: vi.fn() }));
 vi.mock('expo-web-browser', () => ({ openBrowserAsync: vi.fn(async () => ({})) }));
 vi.mock('lucide-react-native', () => Object.fromEntries(['ExternalLink','X','Copy','Search','WrapText','ListOrdered','ChevronLeft','ChevronRight','Ellipsis'].map(key => [key, () => null])));

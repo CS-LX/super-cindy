@@ -210,14 +210,6 @@ export type CindyGhostCallResult =
        */
       producedMedia?: string[];
       /**
-       * 工具结果图片的文字描述(可选,host 视觉桥最佳努力附加)。纯文本模型
-       * 拿不到 cindy-media:// 图片内容只能看到 URL 文本——host 把图片经
-       * 外部多模态模型转成描述随结果带回,模型据此「看到」图而非幻觉编造。
-       * 仅 host 侧注入的视觉桥能力存在且命中时附加;渲染层/IM 出站只消费
-       * 固定媒体字段,不消费本字段(兼容性有回归测试锁定)。
-       */
-      xdt_media_descriptions?: Array<{ url: string; description: string }>;
-      /**
        * Images the plugin shows the model (host-checked and re-encoded under
        * the inline budget). ghost_call returns them as MCP image content after
        * the JSON text; they are not part of the JSON.
@@ -359,14 +351,30 @@ export type CindyMediaToolRequest =
       action: 'prepare';
       /** 精确执行来源；插件配置返回 providerId 时必须原样传入。 */
       providerId?: string;
+      sourceAgent?: 'claude-code' | 'codex' | 'pi';
+      guideSource?: 'auto' | 'official';
+      /** 修正 Guide 时复用原付费调用，prepare 后直接 request/poll。 */
+      sourceInvocationId?: string;
       modelId: string;
       capability: CindyMediaCapability;
     }
   | { action: 'request'; invocationId: string; body: Record<string, unknown> }
   | { action: 'poll'; invocationId: string };
 
+export interface CindyEvaluateToolRequest {
+  action: 'list_models' | 'decisions' | 'rerank';
+  api?: 'decisions' | 'rerank';
+  model_id?: string;
+  provider_id?: string;
+  questions?: Record<string, unknown>;
+  state?: unknown;
+  query?: string;
+  documents?: string[];
+  top_n?: number;
+}
+
 /** Host-owned connections: Grok login, or a messaging platform a teammate connects to itself. */
-export type CindyHostConnectionId = 'grok' | 'im-telegram' | 'im-feishu' | 'im-wecom' | 'im-dingtalk' | 'im-discord';
+export type CindyHostConnectionId = 'grok' | 'im-telegram' | 'im-feishu' | 'im-wecom' | 'im-dingtalk' | 'im-discord' | 'im-imessage';
 
 /** host 注入的依赖:总机的全部真实能力都在这几个回调里。 */
 export interface CindyGhostsMcpDeps {
@@ -375,6 +383,8 @@ export interface CindyGhostsMcpDeps {
   installMarket?(request: { pluginId: string; releaseId: string }, signal?: AbortSignal): Promise<Record<string, unknown>>;
   /** Host-owned connection card. No URLs or credentials may be supplied by the model. */
   connectAccount?(target: { kind: 'plugin'; id: string; namespace?: string | null; reauthorize?: boolean } | { kind: 'host'; id: CindyHostConnectionId; reauthorize?: boolean }, signal?: AbortSignal): Promise<Record<string, unknown>>;
+  /** Host-owned synchronous decision and reranking endpoints. */
+  callEvaluate?(request: CindyEvaluateToolRequest, signal?: AbortSignal): Promise<Record<string, unknown>>;
   /** Cindy Core 原生媒体调用器；能力本身不依赖任何插件。 */
   callMedia?(request: CindyMediaToolRequest): Promise<Record<string, unknown>>;
   /**
@@ -470,6 +480,11 @@ export interface CindyGhostsMcpDeps {
   getRosterItems?(): Array<Pick<CindyGhostInfo, 'id' | 'name' | 'command' | 'recall' | 'namespace'>>;
   /** 意识编写手册(markdown,随主机版本走;agent 写意识前先读)。 */
   forgeGuide(): Promise<string>;
+  /**
+   * MCP Apps 页面生成手册(markdown,随主机版本走):ghost_forge_guide 传
+   * section "pages" 时整份返回。缺省 = 不提供,"pages" 按普通章节查找。
+   */
+  forgePageManual?(): Promise<string>;
   /**
    * 在新的目标目录创建一份安全起步骨架。目标已存在时必须拒绝，绝不覆盖
    * 用户文件；Node 模板只生成随包源码，不安装依赖。

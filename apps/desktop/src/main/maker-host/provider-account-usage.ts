@@ -31,6 +31,7 @@ import {
   type ZhipuCodingPlanQuotaSnapshot,
 } from '../../shared/providerAccountUsage.js';
 import { isKimiCodingProvider, kimiCodingUsageEndpoint, parseKimiCodingUsage } from '../../shared/kimiCodingUsage.js';
+import { isOpenCodeGoProvider, parseOpenCodeGoUsage } from '../../shared/opencodeGoUsage.js';
 import { createMakerLogger } from './logger-adapter.js';
 
 const log = createMakerLogger('provider-account-usage');
@@ -44,6 +45,11 @@ const MAX_RETRY_AFTER_MS = 60 * 60_000;
 /** 官方账户接口清单。端点是唯一事实源，不从目录 / 用户配置推导。 */
 const INTEGRATIONS = {
   'kimi-coding-quota-v1': { origins: ['https://api.kimi.com', 'https://api.kimi.ai'], pathPrefixes: ['/coding'], endpointFor: (origin: string) => `${origin}/coding/v1/usages` },
+  'opencode-go-quota-v1': {
+    origins: ['https://opencode.ai'],
+    pathPrefixes: ['/zen/go'],
+    endpoint: 'https://opencode.ai/zen/go/v1/usage',
+  },
   'deepseek-balance-v1': {
     origins: ['https://api.deepseek.com'],
     endpoint: 'https://api.deepseek.com/user/balance',
@@ -138,6 +144,8 @@ export function setAccountUsageNow(now: () => number): void {
 
 interface CacheRecord {
   snapshot?: ProviderAccountUsageSnapshot;
+  /** A panel read can precede the failed turn, even inside the refresh cooldown. */
+  checkedAfterGoLimit?: boolean;
   expiresAt: number;
   lastAttemptAt: number;
   lastError?: ProviderAccountUsageError;
@@ -154,7 +162,15 @@ export function invalidateKimiAccountUsage(): void {
   kimiIdentities.clear();
   for (const key of cache.keys()) if (key.includes(':kimi-coding-quota-v1:')) cache.delete(key);
 }
-const kimiInFlight = new Map<string, Promise<ProviderAccountUsageResult>>();
+enum QuotaReadFreshness {
+  Cached,
+  Manual,
+  AfterGoLimit,
+}
+const quotaInFlight = new Map<string, {
+  freshness: QuotaReadFreshness;
+  result: Promise<ProviderAccountUsageResult>;
+}>();
 
 class AccountUsageRequestError extends Error {
   constructor(
@@ -391,6 +407,7 @@ async function fetchAccountJson<T>(
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
     const headers: Record<string, string> = { Authorization: authorization };
+    if (resolution.integrationId === 'opencode-go-quota-v1') headers.Accept = 'application/json';
     if (resolution.integrationId === 'zhipu-coding-plan-quota-v1') {
       // 与社区工具（cc-switch）实测口径一致：要求 JSON + 英文文案，响应 msg 语言稳定。
       headers['Content-Type'] = 'application/json';
@@ -443,16 +460,18 @@ async function fetchAccountJson<T>(
 /** 查询入口：unsupported / unavailable / ready 三态。网络失败时回落过期快照（stale）。 */
 export async function readProviderAccountUsage(
   request: ProviderAccountUsageRequest,
+  reason?: 'after-limit',
 ): Promise<ProviderAccountUsageResult> {
   const ownerStamp = ownerStampReader();
   const provider = providerReader(request.providerId);
-  const kimi = isKimiCodingProvider(provider, request.agent);
-  const scope = `${ownerStamp.dataOwnerId}:${ownerStamp.generation}:${request.providerId}:${request.agent ?? ''}`;
+  const hasKimiRoute = isKimiCodingProvider(provider, request.agent);
+  const providerScope = `${ownerStamp.dataOwnerId}:${ownerStamp.generation}:${request.providerId}`;
+  const scope = `${providerScope}:${request.agent ?? ''}`;
   const epoch = kimiMutationEpoch;
   const config = JSON.stringify(provider);
   const ownerCurrent = () => JSON.stringify(ownerStampReader()) === JSON.stringify(ownerStamp)
     && JSON.stringify(providerReader(request.providerId)) === config;
-  if (kimi && provider?.auth.method === 'oauth') {
+  if (hasKimiRoute && provider?.auth.method === 'oauth') {
     try { await prepareOAuth(request.providerId); }
     catch {
       kimiIdentities.delete(scope);
@@ -461,12 +480,16 @@ export async function readProviderAccountUsage(
     if (!ownerCurrent() || epoch !== kimiMutationEpoch) return { status: 'unavailable', error: 'updating' };
   }
   const resolution = resolveProviderAccountUsage(request.providerId, request.agent);
+  const go = resolution?.integrationId === 'opencode-go-quota-v1';
+  const kimi = hasKimiRoute && !go;
+  const afterGoLimit = go && reason === 'after-limit';
+  const shareRead = kimi || go;
   const identity = resolution ? createHash('sha256').update(JSON.stringify([config, resolution])).digest('hex') : null;
   if (kimi && kimiIdentities.get(scope)?.identity !== identity) {
     kimiIdentities.set(scope, { identity, revision: ++kimiRevision });
   }
   const generation = kimiIdentities.get(scope);
-  const current = () => !kimi || (ownerCurrent() && kimiIdentities.get(scope) === generation
+  const current = () => !shareRead || (ownerCurrent() && (!kimi || kimiIdentities.get(scope) === generation)
     && JSON.stringify(resolveProviderAccountUsage(request.providerId, request.agent)) === JSON.stringify(resolution));
   if (!resolution) {
     // 没认领到官方端点，或 key 读不到。区分「本来就没有接口」与「有接口但 key 缺失」。
@@ -475,14 +498,30 @@ export async function readProviderAccountUsage(
     }
     return { status: 'unsupported' };
   }
-  const run = () => readResolvedAccountUsage(request, resolution, ownerStamp, current, kimi ? String(generation?.revision) : '');
-  const flightKey = `${scope}:${identity}:${generation?.revision}`;
-  let pending = kimi ? kimiInFlight.get(flightKey) : undefined;
-  if (!pending) {
+  const revision = kimi ? String(generation?.revision) : '';
+  // The resolved identity includes the actual engine and credential, including when the panel omitted agent.
+  const flightKey = `${providerScope}:${identity}:${revision}`;
+  const previous = shareRead ? quotaInFlight.get(flightKey) : undefined;
+  const freshness = afterGoLimit ? QuotaReadFreshness.AfterGoLimit
+    : go && request.forceRefresh ? QuotaReadFreshness.Manual : QuotaReadFreshness.Cached;
+  let pending: Promise<ProviderAccountUsageResult>;
+  if (previous && previous.freshness >= freshness) {
+    pending = previous.result;
+  } else {
+    const run = async (): Promise<ProviderAccountUsageResult> => {
+      // Let the earlier read settle before refreshing. Its response cannot then overwrite the post-limit cache.
+      if (previous) {
+        await previous.result.catch(() => undefined);
+        if (!current()) return { status: 'unavailable', error: 'updating' };
+      }
+      return readResolvedAccountUsage(request, resolution, ownerStamp, current, revision, afterGoLimit);
+    };
     pending = run();
-    if (kimi) {
-      kimiInFlight.set(flightKey, pending);
-      void pending.finally(() => { if (kimiInFlight.get(flightKey) === pending) kimiInFlight.delete(flightKey); });
+    if (shareRead) {
+      const entry = { freshness, result: pending };
+      quotaInFlight.set(flightKey, entry);
+      const clear = () => { if (quotaInFlight.get(flightKey) === entry) quotaInFlight.delete(flightKey); };
+      void pending.then(clear, clear);
     }
   }
   const result = await pending;
@@ -496,19 +535,23 @@ async function readResolvedAccountUsage(
   ownerStamp: ReturnType<OwnerStampReader>,
   current: () => boolean,
   revision: string,
+  afterGoLimit: boolean,
 ): Promise<ProviderAccountUsageResult> {
   // 缓存键含凭证指纹：同一供应商下换 key（不同账户）后旧账户快照绝不复用。
   const keyFingerprint = createHash('sha256').update(resolution.key).digest('hex').slice(0, 12);
   const cacheKey = `${ownerStamp.dataOwnerId ?? 'local'}:${ownerStamp.generation}:${request.providerId}:${resolution.integrationId}:${resolution.endpoint}:${resolution.agent}:${keyFingerprint}:${revision}`;
   const now = accountUsageNow();
   const record = cache.get(cacheKey);
-  const kimi = resolution.integrationId === 'kimi-coding-quota-v1';
-  if (kimi && record?.lastError && now - record.lastAttemptAt < MIN_MANUAL_REFRESH_INTERVAL_MS) {
+  const structuredQuota = resolution.integrationId === 'kimi-coding-quota-v1'
+    || resolution.integrationId === 'opencode-go-quota-v1';
+  if (structuredQuota && record?.lastError && now - record.lastAttemptAt < MIN_MANUAL_REFRESH_INTERVAL_MS) {
     return record.snapshot ? { status: 'ready', snapshot: record.snapshot, stale: true, error: record.lastError, agent: resolution.agent } : { status: 'unavailable', error: record.lastError };
   }
-  const manualRefreshBlocked =
-    request.forceRefresh === true
+  const refresh = request.forceRefresh === true || afterGoLimit;
+  const refreshBlocked =
+    refresh
     && record !== undefined
+    && (!afterGoLimit || record.checkedAfterGoLimit === true)
     && now - record.lastAttemptAt < MIN_MANUAL_REFRESH_INTERVAL_MS;
   // 限流窗口内不发起请求：有旧快照就回 stale，否则报 throttled（Retry-After 生效）。
   if (record?.retryAt && now < record.retryAt) {
@@ -524,11 +567,11 @@ async function readResolvedAccountUsage(
     }
     return { status: 'unavailable', error: 'throttled', retryAt: record.retryAt };
   }
-  if (manualRefreshBlocked && record.snapshot && record.expiresAt > now) {
+  if (refreshBlocked && record.snapshot && record.expiresAt > now) {
     return { status: 'ready', snapshot: record.snapshot, stale: false, agent: resolution.agent };
   }
   if (
-    !request.forceRefresh
+    !refresh
     && record?.snapshot
     && record.expiresAt > now
     && record.lastError === undefined
@@ -539,14 +582,20 @@ async function readResolvedAccountUsage(
     const snapshot =
       resolution.integrationId === 'kimi-coding-quota-v1'
         ? await fetchAccountJson(resolution, `Bearer ${resolution.key}`, parseKimiCodingUsage)
+        : resolution.integrationId === 'opencode-go-quota-v1'
+        ? await fetchAccountJson(resolution, `Bearer ${resolution.key}`, parseOpenCodeGoUsage)
         : resolution.integrationId === 'zhipu-coding-plan-quota-v1'
         ? await fetchZhipuCodingPlanQuota(resolution)
         : await fetchDeepSeekBalance(resolution);
     if (!current()) return { status: 'unavailable', error: 'updating' };
     cache.set(cacheKey, {
       snapshot,
+      checkedAfterGoLimit: afterGoLimit,
       expiresAt: Math.min(accountUsageNow() + CACHE_TTL_MS, ...(snapshot.kind === 'kimi-coding-quota'
-        ? snapshot.windows.flatMap(window => window.resetsAt !== null && window.resetsAt > accountUsageNow() ? [window.resetsAt] : []) : [])),
+        ? snapshot.windows.flatMap(window => window.resetsAt !== null && window.resetsAt > accountUsageNow() ? [window.resetsAt] : [])
+        : snapshot.kind === 'opencode-go-quota'
+          ? snapshot.windows.flatMap(window => window.resetsAt !== null && window.resetsAt > accountUsageNow() ? [window.resetsAt] : [])
+          : [])),
       lastAttemptAt: accountUsageNow(),
       retryAt: 0,
     });
@@ -554,7 +603,7 @@ async function readResolvedAccountUsage(
   } catch (err) {
     if (!current()) return { status: 'unavailable', error: 'updating' };
     const code = err instanceof AccountUsageRequestError ? err.code : 'unknown';
-    if (kimi && code === 'auth') {
+    if (structuredQuota && code === 'auth') {
       cache.set(cacheKey, { expiresAt: 0, lastAttemptAt: now, lastError: code, retryAt: 0 });
       return { status: 'unavailable', error: code };
     }
@@ -598,7 +647,7 @@ async function readResolvedAccountUsage(
     if (
       err instanceof AccountUsageRequestError
       && err.code === 'rate-limited'
-      && request.forceRefresh
+      && refresh
     ) {
       return { status: 'unavailable', error: 'throttled', retryAt: err.retryAt };
     }
@@ -614,7 +663,7 @@ async function readResolvedAccountUsage(
 export function resetProviderAccountUsageForTest(): void {
   cache.clear();
   kimiIdentities.clear();
-  kimiInFlight.clear();
+  quotaInFlight.clear();
   oauthReader = () => null;
   prepareOAuth = async () => {};
   providerReader = () => undefined;
@@ -633,4 +682,18 @@ export async function readKimiCodingAccountUsage(request: ProviderAccountUsageRe
   // A mixed provider can also expose DeepSeek/Zhipu routes. Pin the generic reader
   // to the Kimi route so it cannot select another integration or its credentials.
   return readProviderAccountUsage({ ...request, agent });
+}
+
+/** Only the fixed OpenCode Go integration is exposed to linked same-account computers. */
+export async function readOpenCodeGoAccountUsage(
+  request: ProviderAccountUsageRequest,
+  reason?: 'after-limit',
+): Promise<ProviderAccountUsageResult> {
+  const provider = providerReader(request.providerId);
+  const agents = request.agent ? [request.agent] : PROVIDER_ACCOUNT_USAGE_AGENTS;
+  const agent = agents.find(candidate => isOpenCodeGoProvider(provider, candidate));
+  if (!agent) return { status: 'unsupported' };
+  // Pin the generic reader to the official Go route so a mixed provider cannot
+  // select another integration or lend it the wrong runtime credential.
+  return readProviderAccountUsage({ ...request, agent }, reason);
 }

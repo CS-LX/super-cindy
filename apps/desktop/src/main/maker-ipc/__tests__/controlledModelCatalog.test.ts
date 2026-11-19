@@ -91,6 +91,17 @@ describe('controlled model catalogs', () => {
     expect(await f.read(request(id))).toEqual({ providers: [{ id: 'a-provider' }] });
     expect(f.invoke).toHaveBeenCalledWith(id, 'maker:provider:list', [], f.assertOwner);
   });
+  // provider-sharing.md §5.1 (2026-11-02) / unit: under remote control the picker reads shares through B,
+  // so B must apply the guest projection the controller's direct share reads use; otherwise a shared group
+  // whose own computer is signed out vanishes only when the task lives on another computer.
+  it.each([
+    ['share:b-only', true],
+    ['device-a', false],
+  ] as const)('projects a shared group read through B for %s', async (id, connected) => {
+    const f = fixture();
+    f.invoke.mockResolvedValue({ ok: true, result: { providers: [{ id: 'anthropic', connected: false, groupSize: 3 }] } });
+    expect(await f.read(request(id))).toEqual({ providers: [{ id: 'anthropic', connected, groupSize: 3 }] });
+  });
   it('rejects mutations and unknown sources without forwarding', async () => {
     const f = fixture();
     await expect(f.read({ ...request(), channel: 'maker:send' })).rejects.toThrow('INVALID_PARAMS');
@@ -103,6 +114,20 @@ describe('controlled model catalogs', () => {
     const args = [{ capabilities: ['provider-logo-kinds-v2'] }];
     await f.read({ ...request(), args });
     expect(f.invoke).toHaveBeenCalledWith('device-a', 'maker:provider:list', args, f.assertOwner);
+  });
+  // Unit: the model picker now asks B for anonymous share status. The existing
+  // catalog tests only send empty args, which missed this gateway rejecting the read.
+  it('forwards anonymous group status only for an authorized share', async () => {
+    const f = fixture();
+    const args = [{ includeSharedGroupStatus: true }];
+    f.invoke.mockResolvedValue({ ok: true, result: { providers: [{ id: 'anthropic', groupSize: 2,
+      groupStatus: ['available', 'cooling'], runningTurns: 4 }] } });
+    await expect(f.read({ ...request(), args })).rejects.toThrow('INVALID_PARAMS');
+    expect(f.invoke).not.toHaveBeenCalled();
+    await expect(f.read({ ...request('share:b-only'), args })).resolves.toEqual({ providers: [{
+      id: 'anthropic', groupSize: 2, groupStatus: ['available', 'cooling'],
+    }] });
+    expect(f.invoke).toHaveBeenCalledWith('share:b-only', 'maker:provider:list', args, f.assertOwner);
   });
   it('discards results after source revocation', async () => {
     const f = fixture();

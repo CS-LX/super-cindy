@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
+import { EMPTY_PLUGIN_UI_MESSAGE_CANDIDATES } from "@/cindy-brain/PluginUiContributions";
 import { StrictMode, useState, type ReactNode } from 'react';
+import { MemoryRouter } from 'react-router-dom';
 import { act, cleanup, createEvent, fireEvent, render as renderUI, screen, waitFor, within } from '@testing-library/react';
 import { Tooltip } from '@/components/ui/tooltip';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
@@ -8,6 +10,7 @@ import { ChatInviteDialog } from '../ChatInviteDialog';
 import { ChatThreadPanel } from '../ChatThreadPanel';
 import { BotGroupThreadHint } from '../BotGroupThreadHint';
 import { GroupMaskProvider } from '../GroupMaskProvider';
+import { GroupMaskIndicator } from '../GroupMaskControls';
 import { GroupMaskContext, useGroupMask, useReadLocatedMention, type GroupMaskPresentation } from '../groupMaskPresentation';
 import { botGroupThreadDraftKey } from '../botGroupAttachments';
 import { discardDraft, getAllDraftAttachmentUrls, getDraft, saveDraft } from '@/lib/composerDraftStore';
@@ -17,6 +20,16 @@ import { chatErrorKey } from '../chatError';
 import type { BotGroupDetail, BotGroupMessageView, BotGroupThreadSummary, ChatMaskState } from '../../../../shared/botGroupChat';
 import { shareSelectionStore } from '@/components/chat/shareSelectionStore';
 import { queryShareableMessageIds, stripInteractiveElements } from '@/lib/shareConversationImage';
+
+// Native dictation is covered in useBotGroupVoiceInput.test.tsx; keep this
+// thread/send suite independent of microphone and account-service setup.
+vi.mock('../useBotGroupVoiceInput', () => {
+  const ownsDraft = () => false;
+  return { useBotGroupVoiceInput: ({ text }: { text: string }) => ({
+  ownsDraft,
+  displayText: text, state: 'idle', isBusy: false, isListening: false, isCaptureReady: false,
+  lastError: null, shortcutLabel: '', start: () => false, stop: async () => {}, cancel: async () => {},
+}) }; });
 
 const mocks = vi.hoisted(() => ({
   status: vi.fn(), react: vi.fn(), reactors: vi.fn(), thread: vi.fn(), followThread: vi.fn(), reply: vi.fn(), createInvite: vi.fn(), previewInvite: vi.fn(), acceptInvite: vi.fn(),
@@ -50,7 +63,7 @@ beforeEach(() => {
   // The thread reply keeps a draft per thread; one test's unsent text must not start the next.
   discardDraft(botGroupThreadDraftKey(group.id, 'root'));
   mocks.materialize.mockReset().mockImplementation(async files => [...files]);
-  vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   mocks.status.mockResolvedValue({ enabled: true, connected: true });
   mocks.mask.mockResolvedValue({ ok: false, errorCode: 'UNSUPPORTED_OPERATION' });
   mocks.mentions.mockResolvedValue({ ok: true, mentions: [{ messageId: 'question', sequence: '1' }], hasMore: false });
@@ -79,10 +92,88 @@ describe('chat interaction controls', () => {
     return <><input aria-label="Chat draft" value={draft} onChange={e => setDraft(e.target.value)} />
       <span>{mask ? 'Config ready' : 'No config'}</span>
       {mask && <><button onClick={() => mask.update({ enabled: false })}>Disable reply</button>
+        <button onClick={() => mask.update({ trigger: 'always' })}>Permanent reply</button>
         <button onClick={mask.participate}>Participate</button><button onClick={() => mask.markMentionsRead(['question'])}>Read original</button>
         <button onClick={mask.retry}>Retry mask</button>{mask.error && <span role="alert">Save failed</span>}</>}
     </>;
   }
+  // Unit: actual Provider actions, missing coverage for permanent delegation.
+  // A keystroke must not send a takeover; an explicit disable must still persist.
+  it.each(['always', 'scheduled', 'manual'] as const)('keeps %s delegation under its own participation policy', async trigger => {
+    let state = maskState(); state.settings.trigger = trigger;
+    mocks.mask.mockImplementation(async ({ action }) => {
+      if (action?.type === 'save') state = { ...state, settings: action.settings, status: action.settings.enabled ? 'enabled' : 'off' };
+      if (action?.type === 'participate') state = { ...state, status: 'paused' };
+      return { ok: true, state };
+    });
+    render(<GroupMaskProvider groupId="room"><MaskProbe /></GroupMaskProvider>);
+    const participate = await screen.findByText('Participate');
+    await act(async () => fireEvent.click(participate));
+    expect(mocks.mask.mock.calls.filter(([input]) => input.action?.type === 'participate')).toHaveLength(trigger === 'always' ? 0 : 1);
+    expect(state.status).toBe(trigger === 'always' ? 'enabled' : 'paused');
+    await act(async () => fireEvent.click(screen.getByText('Disable reply')));
+    expect(state.settings.enabled).toBe(false);
+    expect(state.status).toBe('off');
+  });
+  // Unit: the actual indicator/provider must expose a failed stop and retry it.
+  // Fixed-context UI tests missed a network/revision rejection after clicking Stop.
+  it.each(['NETWORK_ERROR', 'REVISION_CONFLICT'])('keeps a rejected permanent stop visible and retryable (%s)', async errorCode => {
+    let state = maskState(), fail = true;
+    mocks.mask.mockImplementation(async ({ action }) => {
+      if (action?.type === 'save') {
+        if (fail) {
+          if (errorCode === 'REVISION_CONFLICT') state = { ...state, revision: 2 };
+          return { ok: false, errorCode };
+        }
+        state = { ...state, revision: state.revision + 1, settings: action.settings, status: 'off' };
+      }
+      return { ok: true, state };
+    });
+    render(<MemoryRouter><GroupMaskProvider groupId="room"><GroupMaskIndicator groupId="room" onTakeOver={vi.fn()} /></GroupMaskProvider></MemoryRouter>);
+    fireEvent.click(await screen.findByTestId('group-mask-status'));
+    fireEvent.click(screen.getByRole('button', { name: 'bots.groupChat.mask.stop' }));
+    expect((await screen.findByRole('alert')).textContent).toBe('bots.groupChat.mask.saveError');
+    expect(screen.getByTestId('group-mask-status').getAttribute('data-status')).toBe('enabled');
+    fail = false;
+    fireEvent.click(screen.getByRole('button', { name: 'bots.groupChat.mask.retry' }));
+    await waitFor(() => expect(screen.getByTestId('group-mask-status').getAttribute('data-status')).toBe('off'));
+    expect(screen.queryByRole('alert')).toBeNull();
+    const saves = mocks.mask.mock.calls.filter(([input]) => input.action?.type === 'save');
+    expect(saves).toHaveLength(2);
+    expect(saves[1]![0].action).toMatchObject({ expectedRevision: errorCode === 'REVISION_CONFLICT' ? 2 : 1, settings: { enabled: false } });
+    expect(saves[1]![0].operationId === saves[0]![0].operationId).toBe(errorCode === 'NETWORK_ERROR');
+  });
+  // Unit timing regression: entry-only tests cannot detect removing the dispatch
+  // guard. Switch while participation is queued, or retry a failed old action;
+  // obsolete presence must vanish without clearing an independent failed read.
+  it.each(['queued', 'failed'] as const)('drops %s participation after switching to permanent without losing another retry', async mode => {
+    let state = maskState(), failRead = true;
+    state.settings.trigger = 'scheduled';
+    mocks.mentions.mockImplementation(async ({ readIds }) => readIds && failRead
+      ? { ok: false, errorCode: 'NETWORK_ERROR' }
+      : { ok: true, mentions: [{ messageId: 'question', sequence: '1' }], hasMore: false });
+    mocks.mask.mockImplementation(async ({ action }) => {
+      if (action?.type === 'participate') return { ok: false, errorCode: 'NETWORK_ERROR' };
+      if (action?.type === 'save') state = { ...state, revision: 2, settings: action.settings };
+      return { ok: true, state };
+    });
+    render(<GroupMaskProvider groupId="room"><MaskProbe /></GroupMaskProvider>);
+    const read = await screen.findByText('Read original');
+    await act(async () => fireEvent.click(read));
+    if (mode === 'failed') await act(async () => fireEvent.click(screen.getByText('Participate')));
+    await act(async () => {
+      fireEvent.click(screen.getByText('Permanent reply'));
+      if (mode === 'queued') fireEvent.click(screen.getByText('Participate'));
+    });
+    await act(async () => fireEvent.click(screen.getByText('Retry mask')));
+    expect(state.settings.trigger).toBe('always');
+    expect(mocks.mask.mock.calls.filter(([input]) => input.action?.type === 'participate')).toHaveLength(mode === 'queued' ? 0 : 1);
+    expect(screen.getByRole('alert').textContent).toBe('Save failed');
+    failRead = false;
+    await act(async () => fireEvent.click(screen.getByText('Retry mask')));
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(mocks.mentions.mock.calls.filter(([input]) => input.readIds)).toHaveLength(3);
+  });
   it('preserves chat-local state when personal config arrives or authority disappears', async () => {
     let finish!: (value: unknown) => void, changed = () => {};
     mocks.mask.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
@@ -98,6 +189,7 @@ describe('chat interaction controls', () => {
   });
   it.each(['Participate', 'Read original'])('retains a failed save after successful %s and retries that save', async operation => {
     let state = maskState(), fail = true;
+    state.settings.trigger = 'scheduled';
     mocks.mask.mockImplementation(async ({ action }) => {
       if (action?.type === 'save') {
         if (fail) return { ok: false, errorCode: 'NETWORK_ERROR' };
@@ -432,6 +524,8 @@ describe('chat interaction controls', () => {
     const oldRow = (await screen.findByText('Reply 2')).closest('article');
     const root = screen.getByText('Root message').closest('article')!;
     fireEvent.click(within(root).getByRole('button', { name: k('reactionCount') }));
+    // Sharing intentionally retains all loaded DOM; normal reading only mounts a viewport window.
+    act(() => shareSelectionStore.enter('bot-group:room:thread:root'));
     await screen.findByText('Reply 101');
     expect(screen.getByText('Reply 2').closest('article')).toBe(oldRow);
     expect(screen.getByText('Reply 51')).toBeTruthy();
@@ -561,7 +655,7 @@ describe('chat interaction controls', () => {
   it('preserves copy and image sharing beside thread replies and reactions in one toolbar', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined), reply = vi.fn();
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
-    render(<ChatMessageActions shareScope="group:room" groupId="room" message={{ ...message, replyCount: 2 }} onReply={reply} onChanged={vi.fn()} />);
+    render(<ChatMessageActions pluginUi={EMPTY_PLUGIN_UI_MESSAGE_CANDIDATES} shareScope="group:room" groupId="room" message={{ ...message, replyCount: 2 }} onReply={reply} onChanged={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'chat.messageActionBar.copy' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('Root message'));
     fireEvent.click(screen.getByRole('button', { name: k('openTopic') }));
@@ -637,7 +731,7 @@ describe('chat interaction controls', () => {
 
   it('removes only the current actor reaction and refreshes the authoritative message', async () => {
     const changed = vi.fn();
-    render(<ChatMessageActions shareScope="group:room" groupId="room" message={message} onChanged={changed} />);
+    render(<ChatMessageActions pluginUi={EMPTY_PLUGIN_UI_MESSAGE_CANDIDATES} shareScope="group:room" groupId="room" message={message} onChanged={changed} />);
     const reaction = screen.getByRole('button', { name: k('reactionCount') });
     expect(reaction.getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(reaction);
@@ -782,6 +876,29 @@ describe('chat interaction controls', () => {
     await waitFor(() => expect(mocks.reply).toHaveBeenCalledTimes(3));
     expect(mocks.reply.mock.calls[2]![0].mentions).toEqual({ all: false, botIds: members.map(member => member.botId) });
     expect(mocks.reply.mock.calls[2]![0].clientId).not.toBe(original.clientId);
+  });
+
+  // PR #10371 review (component): the shared-name hold read the live roster before the retry
+  // rule, so a member renamed to the same name after a failed send blocked its retry. A retry
+  // keeps its own roster and clientId; only a newly typed @ is held.
+  it('retries a failed typed thread reply after another member takes the same name, and holds only a retyped one', async () => {
+    mocks.reply.mockResolvedValue({ ok: false, errorCode: 'REQUEST_TIMEOUT' });
+    const ann = { botId: 'bot', name: 'Ann', status: 'active' as const };
+    const view = render(<ChatThreadPanel group={{ ...group, members: [ann] } as BotGroupDetail} rootId="root" onClose={vi.fn()} />);
+    const input = screen.getByRole('textbox', { name: k('replyPlaceholder') }) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: '@Ann hello' } });
+    fireEvent.click(screen.getByRole('button', { name: k('sendReply') }));
+    await screen.findByRole('alert');
+    const original = mocks.reply.mock.calls[0]![0];
+    view.rerender(<Tooltip.Provider><ChatThreadPanel group={{ ...group, members: [ann, { ...ann, botId: 'namesake' }] } as BotGroupDetail} rootId="root" onClose={vi.fn()} /></Tooltip.Provider>);
+    fireEvent.click(screen.getByRole('button', { name: k('sendReply') }));
+    await waitFor(() => expect(mocks.reply).toHaveBeenCalledTimes(2));
+    expect(mocks.reply.mock.calls[1]![0]).toEqual(original);
+    await waitFor(() => expect(input.value).toBe('@Ann hello'));
+    fireEvent.change(input, { target: { value: '@Ann hello again' } });
+    fireEvent.click(screen.getByRole('button', { name: k('sendReply') }));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('bots.groupChat.errors.mentionAmbiguous'));
+    expect(mocks.reply).toHaveBeenCalledTimes(2);
   });
 
   // Regression: thread mode hid the attachment menu and silently sent text only.
@@ -1085,9 +1202,11 @@ describe('chat interaction controls', () => {
       type(input, '@Ann ', 4);
       fireEvent.keyDown(input, { key: 'Escape' });
       fireEvent.keyDown(input, { key: 'Enter' });
-      await waitFor(() => expect(mocks.reply).toHaveBeenCalledOnce());
-      // A retyped name is a manual @: both namesakes, as in the main composer.
-      expect(mocks.reply.mock.calls[0]![0].mentions).toEqual({ all: false, botIds: ['ann-chris', 'ann-dana'] });
+      // A retyped name is a manual @. Two members share it, so it names neither: the reply is
+      // held with its draft until one is picked, as in the main composer (incident 2026-11-13).
+      expect((await screen.findByRole('alert')).textContent).toContain('bots.groupChat.errors.mentionAmbiguous');
+      expect(mocks.reply).not.toHaveBeenCalled();
+      expect(input.value).toBe('@Ann ');
     });
 
     it('moves the caret past the space when a re-pick leaves the text unchanged, and does not pull it back later', () => {
@@ -1149,7 +1268,7 @@ describe('chat interaction controls', () => {
 
     // One retry rule (bot-group-chat.md): a failed reply is retried with the same clientId only when the
     // text and its targets are unchanged. Each row edits the draft between attempts without changing the text.
-    // Comparing only the text fails rows 1 and 4; comparing the pick records fails row 3; re-resolving
+    // Comparing only the text fails row 1; comparing the pick records fails row 3; re-resolving
     // against the live roster fails the roster-refresh test above.
     const pickAt = (input: HTMLTextAreaElement, caret: number, option: number) => {
       // As a user would: click back into the box with the caret after the name, then pick.
@@ -1165,8 +1284,6 @@ describe('chat interaction controls', () => {
       { row: 'pick the same teammate for a typed mention', draft: (input: HTMLTextAreaElement) => type(input, '@Bo '),
         // The typed query `Bo` also matches the untranslated 所有人 key here, so Bo is the second option.
         edit: (input: HTMLTextAreaElement) => pickAt(input, 3, 1), text: '@Bo ', first: ['bo'], second: ['bo'], reused: true },
-      { row: 'pick one namesake for a typed mention', draft: (input: HTMLTextAreaElement) => type(input, '@Ann '),
-        edit: (input: HTMLTextAreaElement) => pickAt(input, 4, 1), text: '@Ann ', first: ['ann-chris', 'ann-dana'], second: ['ann-dana'], reused: false },
     ])('retries a failed reply after "$row" with reused clientId = $reused', async ({ draft, edit, text, first, second, reused }) => {
       const input = renderThread();
       mocks.reply.mockResolvedValueOnce({ ok: false, errorCode: 'REQUEST_TIMEOUT' });

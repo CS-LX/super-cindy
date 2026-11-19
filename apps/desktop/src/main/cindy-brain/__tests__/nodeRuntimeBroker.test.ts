@@ -7,14 +7,22 @@ import { PassThrough } from 'node:stream';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { adaptPluginNodeProcess } from '../nodeRuntimeProcessAdapter';
 import type { InstalledGhost } from '../../../shared/ghost';
+import { withGhostResolvedLocale } from '../../../shared/ghost';
+import { handlePluginHostToolRequest, type PluginHostToolPorts } from '../hostToolSlot.js';
+import { authorizePluginHostToolCall } from '../../mcp-integrations/hostToolCaller.js';
+import { bindTaskActionInput } from '../../maker-ipc/taskActionAuthorization.js';
+import { AgentInputCoordinator, type AgentInputCoordinatorDeps } from '../../maker-ipc/agent-input-coordinator.js';
+import type { AgentInputQueuedMessage } from '../../../shared/agentInputQueue.js';
 import {
   createUtilityNodeWorkerProcess,
   GhostNodeRuntimeBroker,
+  type GhostNodeRuntimeBrokerDeps,
   type NodeWorkerStartupObservation,
   type NodeWorkerStartupState,
   type NodeWorkerProcess,
-} from '../nodeRuntimeBroker';
+} from '../nodeRuntimeBroker.desktop';
 
 const TEST_APP_RUN_ID = 'a'.repeat(16);
 const TEST_ATTEMPT_ID = 'b'.repeat(16);
@@ -413,6 +421,55 @@ afterEach(() => {
 });
 
 describe('nodeRuntimeBroker · Electron utilityProcess 适配', () => {
+  // #10189, unit: exercise the real adapter with OS outcomes injected. Native-event
+  // tests did not cover lost exits, unknown identity or kill requests without exit.
+  it.each(['EPERM', 'EACCES', 'unknown', 'alive'])('retains quota on %s until a real exit', code => {
+    const native = new FakeUtilityProcess();
+    const probe = vi.fn(() => { if (code !== 'alive') throw Object.assign(new Error('probe'), { code }); });
+    const proc = adaptPluginNodeProcess(native, true, probe);
+    const exit = vi.fn();
+    proc.on('exit', exit);
+    proc.kill();
+    expect(proc.reconcileExit!()).toBe(false);
+    expect(exit).not.toHaveBeenCalled();
+    native.emit('exit', 0);
+    expect(proc.reconcileExit!()).toBe(true);
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0, null);
+  });
+
+  it('reconciles an observed PID once despite missing PID and late events', () => {
+    const native = new FakeUtilityProcess();
+    const probe = vi.fn(() => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); });
+    const proc = adaptPluginNodeProcess(native, true, probe);
+    const exit = vi.fn();
+    proc.on('exit', exit);
+    native.pid = undefined;
+    expect(proc.reconcileExit!()).toBe(true);
+    expect(probe).toHaveBeenCalledExactlyOnceWith(4321, 0);
+    native.emit('exit', 1);
+    native.emit('error', 'late', 'channel');
+    native.emit('message', { type: 'ready' });
+    expect(proc.kill('SIGKILL')).toBe(false);
+    expect(proc.reconcileExit!()).toBe(true);
+    expect(exit).toHaveBeenCalledExactlyOnceWith(null, null);
+    expect(native.kill).not.toHaveBeenCalled();
+    expect(proc.readStartupState!().readySeen).toBe(false);
+  });
+
+  it('does not probe without a PID, then captures the native spawn identity', () => {
+    const native = new FakeUtilityProcess();
+    native.pid = undefined;
+    const probe = vi.fn(() => { throw Object.assign(new Error('gone'), { code: 'ESRCH' }); });
+    const proc = adaptPluginNodeProcess(native, true, probe);
+    expect(proc.reconcileExit!()).toBe(false);
+    expect(probe).not.toHaveBeenCalled();
+    native.pid = 4322;
+    native.emit('spawn');
+    native.pid = undefined;
+    expect(proc.reconcileExit!()).toBe(true);
+    expect(probe).toHaveBeenCalledExactlyOnceWith(4322, 0);
+  });
+
   describe.each(['darwin', 'win32', 'linux'] as const)('%s 系统权限责任归属', (platform) => {
     it.each([
       { mode: '普通工作进程', childArgs: undefined },
@@ -480,7 +537,7 @@ describe('nodeRuntimeBroker · Electron utilityProcess 适配', () => {
     );
 
     expect(fork).toHaveBeenCalledWith(
-      expect.stringMatching(/nodeRuntimeWorkerProcess\.js$/),
+      expect.stringMatching(/nodeRuntimeWorkerProcess\.desktop\.js$/),
       ['/plugins/demo/node/worker.cjs'],
       expect.objectContaining({
         cwd: os.tmpdir(),
@@ -1934,6 +1991,18 @@ describe('nodeRuntimeBroker · 意外死亡诊断(2026-07-26)', () => {
     expect(message).not.toContain('old failure from initialization');
   });
 
+  it('keeps a reused saved credential out of Node bindings and requires Host injection', async () => {
+    const ghost = fakeGhost();
+    ghost.manifest.node!.secretBindings = [{ key: 'api_key', label: 'PAT', methods: ['slow'] }];
+    const spawnProcess = vi.fn();
+    const broker = new GhostNodeRuntimeBroker({ getGhost: () => ghost,
+      readSecret: () => 'cindy:host-injected-saved-credential:v1', spawnProcess });
+    expect(await broker.handleRequest('node-ghost', rpcRequest('slow'))).toMatchObject({
+      ok: false, errorCode: 'HOST_INJECTION_REQUIRED',
+    });
+    expect(spawnProcess).not.toHaveBeenCalled();
+  });
+
   it('凭证值出现在 stderr 诊断行中时被脱敏', async () => {
     const ghost = fakeGhost();
     // secretBindings 绑定到所有方法(包括 slow)
@@ -2646,6 +2715,8 @@ describe('nodeRuntimeBroker · 宿主代启子进程(childSpawn,2026-07-23)', ()
     ghost: InstalledGhost,
     spawnChild?: () => FakeRawChild,
     autoSpawnChild = true,
+    hostToolRequest?: GhostNodeRuntimeBrokerDeps['hostToolRequest'],
+    networkRequest?: GhostNodeRuntimeBrokerDeps['networkRequest'],
   ) {
     const worker = new FakeControlProcess((message) => {
       if (message.id !== undefined && typeof message.method === 'string') {
@@ -2655,6 +2726,8 @@ describe('nodeRuntimeBroker · 宿主代启子进程(childSpawn,2026-07-23)', ()
     const spawned: Array<{ entryPath: string; args: string[]; child: FakeRawChild }> = [];
     const broker = new GhostNodeRuntimeBroker({
       getGhost: () => ghost,
+      hostToolRequest,
+      networkRequest,
       spawnProcess: () => worker as unknown as NodeWorkerProcess,
       spawnChildProcess: (entryPath, _cwd, _ghostId, args) => {
         const child = spawnChild?.() ?? new FakeRawChild();
@@ -2666,6 +2739,210 @@ describe('nodeRuntimeBroker · 宿主代启子进程(childSpawn,2026-07-23)', ()
     await broker.handleRequest('node-ghost', rpcRequest()); // 拉起 worker
     return { broker, worker, spawned };
   }
+
+  // §1.2/§3: the private worker port binds the real install and uses the UI gateway;
+  // a plugin can call independently of an Agent RPC, and a changed installation cancels the result.
+  it.each([false, true])('routes autonomous Host tools through the shared gateway and fences install changes: %s', async stale => {
+    const ghost = childSpawnGhost();
+    ghost.approval = { state: 'approved', revision: 'r1' };
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    const result = { content: [{ type: 'text', text: '{"ok":true,"tasks":[]}' }] };
+    const hostToolRequest = vi.fn(async (id: string, payload: unknown, current: () => boolean) => {
+      expect(id).toBe('node-ghost');
+      expect(payload).toMatchObject({ server: 'cindy_helper', tool: 'list_sessions', args: {} });
+      expect(current()).toBe(true);
+      await gate;
+      return result;
+    });
+    const { broker, worker } = await bootWorker(ghost, undefined, true, hostToolRequest);
+    try {
+      worker.emitControl({ type: 'host-tool-request', reqId: 'host1', server: 'cindy_helper', tool: 'list_sessions', args: {} });
+      await vi.waitFor(() => expect(hostToolRequest).toHaveBeenCalledOnce());
+      if (stale) ghost.approval = { state: 'approved', revision: 'r2' };
+      finish();
+      await vi.waitFor(() => expect(worker.lastOf('node-host-result')).toMatchObject({ reqId: 'host1', ok: true }));
+      const reply = worker.lastOf('node-host-result')!;
+      if (stale) expect(reply.result).toMatchObject({ isError: true, content: [{ text: '{"ok":false,"errorCode":"PERMISSION_DENIED"}' }] });
+      else expect(reply.result).toEqual(result);
+    } finally { broker.destroyAll(); }
+  });
+
+  // Unit, #9801 / 4538031073: Host queries localize the approved manifest on
+  // every lookup, while resident workers keep running. Existing install tests
+  // changed revision, not locale. A locale change must keep the same worker's
+  // control-frame call usable both before dispatch and during its Host callback.
+  it.each(['before', 'during'] as const)('keeps autonomous Host tools usable after a locale change %s dispatch', async phase => {
+    const ghost = childSpawnGhost();
+    ghost.approval = { state: 'approved', revision: 'r1' };
+    ghost.manifest = withGhostResolvedLocale(ghost.manifest, 'en');
+    const localize = () => {
+      ghost.manifest = { ...withGhostResolvedLocale(ghost.manifest, 'zh-CN'), name: '本地化插件名称' };
+    };
+    const result = { content: [{ type: 'text', text: '{"ok":true,"tasks":[]}' }] };
+    const hostToolRequest = vi.fn(async (_id: string, _payload: unknown, current: () => boolean) => {
+      expect(current()).toBe(true);
+      if (phase === 'during') localize();
+      expect(current()).toBe(true);
+      return result;
+    });
+    const { broker, worker } = await bootWorker(ghost, undefined, true, hostToolRequest);
+    try {
+      if (phase === 'before') localize();
+      worker.emitControl({ type: 'host-tool-request', reqId: 'localized', server: 'cindy_helper', tool: 'list_sessions', args: {} });
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(hostToolRequest).toHaveBeenCalledOnce();
+      expect(worker.lastOf('node-host-result')).toMatchObject({ reqId: 'localized', result });
+      expect(worker.killed).toBe(false);
+    } finally { broker.destroyAll(); }
+  });
+
+  // Unit: independent Host calls are active work even without an Agent RPC.
+  // Existing immediate replies missed native consent exceeding the 30s idle timeout.
+  // #9825 also bridges autonomous network requests; they must hold the same idle
+  // lifetime while awaiting a response, then release it on success and failure.
+  it.each(['tool', 'network'] as const)('keeps concurrent %s calls alive and resumes idle collection after success and failure', async kind => {
+    vi.useFakeTimers();
+    const ghost = childSpawnGhost();
+    ghost.manifest.node!.idleTimeoutSeconds = 30;
+    ghost.approval = { state: 'approved', revision: 'r1' };
+    let finish!: () => void, reject!: (error: Error) => void;
+    const first = new Promise<void>(resolve => { finish = resolve; });
+    const second = new Promise<void>((_resolve, fail) => { reject = fail; });
+    const result = { content: [{ type: 'text', text: 'saved' }] };
+    const hostToolRequest = vi.fn().mockImplementationOnce(async () => { await first; return result; })
+      .mockImplementationOnce(async () => { await second; });
+    const { broker, worker } = await bootWorker(ghost, undefined, true,
+      kind === 'tool' ? hostToolRequest : undefined, kind === 'network' ? hostToolRequest : undefined);
+    try {
+      for (const reqId of ['first', 'second'])
+        worker.emitControl(kind === 'tool'
+          ? { type: 'host-tool-request', reqId, server: 'cindy_helper', tool: 'list_sessions', args: {} }
+          : { type: 'network-request', reqId, request: { op: 'fetch', url: 'https://example.com' } });
+      expect(hostToolRequest).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(31_000);
+      expect(worker.killed).toBe(false);
+      finish();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(worker.lastOf('node-host-result')).toMatchObject({ reqId: 'first', result });
+      await vi.advanceTimersByTimeAsync(31_000);
+      expect(worker.killed).toBe(false);
+      reject(new Error('consent unavailable'));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(worker.lastOf('node-host-result')).toMatchObject(kind === 'tool'
+        ? { reqId: 'second', result: { isError: true } } : { reqId: 'second', ok: false });
+      await vi.advanceTimersByTimeAsync(29_999);
+      expect(worker.killed).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(worker.killed).toBe(true);
+    } finally { broker.destroyAll(); }
+  });
+
+  // Unit, #9825 / 4546519914: the private parser's 128KiB frame cap discarded
+  // legal 256KiB bodies. Check actual broker dispatch, including JSON escaping.
+  it.each(['plain', 'escaped'] as const)('delivers a legal maximum %s network body through the private channel', async encoding => {
+    const ghost = childSpawnGhost();
+    ghost.approval = { state: 'approved', revision: 'r1' };
+    const body = (encoding === 'escaped' ? '\u0000' : 'x').repeat(256 * 1024);
+    const request = vi.fn(async (_id: string, payload: Record<string, unknown>) => ({ ok: true, length: String(payload.body).length }));
+    const { broker, worker } = await bootWorker(ghost, undefined, true, undefined, request);
+    try {
+      worker.emitControl({ type: 'network-request', reqId: 'body', request: { op: 'fetch', url: 'https://example.com', method: 'POST', body } });
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(request).toHaveBeenCalledOnce();
+      expect(worker.lastOf('node-host-result')).toMatchObject({ reqId: 'body', ok: true, result: { length: body.length } });
+    } finally { broker.destroyAll(); }
+  });
+
+  // Tier 1: a worker must not borrow another Agent callId through network IPC;
+  // a replacement while a request is awaiting must fence its reply.
+  it.each([false, true])('binds private network requests to the worker installation: %s', async stale => {
+    const ghost = childSpawnGhost();
+    ghost.approval = { state: 'approved', revision: 'r1' };
+    let finish!: () => void;
+    const gate = new Promise<void>(resolve => { finish = resolve; });
+    const request = vi.fn(async (_id: string, payload: Record<string, unknown>) => {
+      expect(payload.callId).toBeUndefined();
+      await gate;
+      return { ok: true, connectionId: 'opaque' };
+    });
+    const { broker, worker } = await bootWorker(ghost, undefined, true, undefined, request);
+    try {
+      worker.emitControl({ type: 'network-request', reqId: 'host1', request: { op: 'fetch', url: 'https://example.com', callId: 'forged' } });
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+      expect(request).toHaveBeenCalledOnce();
+      if (stale) ghost.approval = { state: 'approved', revision: 'r2' };
+      finish();
+      for (let i = 0; i < 8; i++) await Promise.resolve();
+      expect(worker.lastOf('node-host-result')).toMatchObject({ reqId: 'host1', ok: !stale });
+    } finally { broker.destroyAll(); }
+  });
+
+  // Unit #9801/622jIH: real broker idle collection -> Host admission -> coordinator
+  // drain. Also exercise an installed control group's mixed runtime call over the
+  // private worker channel, without an Agent RPC or an additional approval port.
+  it('delivers an accepted message once after its source worker is normally collected', async () => {
+    vi.useFakeTimers();
+    const ghost = childSpawnGhost();
+    ghost.manifest.node!.idleTimeoutSeconds = 30;
+    ghost.manifest.agent = { hostTools: ['control'] };
+    ghost.approval = { state: 'approved', revision: 'r1' };
+    let running = true;
+    const send = vi.fn<AgentInputCoordinatorDeps['sendToAgent']>(async () => ({ kind: 'session-dispatch', source: 'test', dispatched: true }));
+    const coordinator = new AgentInputCoordinator({
+      sendToAgent: send, steerToAgent: async () => {}, abortSession: async () => {},
+      isTurnRunning: () => running, isLiveTurnRunning: () => running,
+      hasPendingInteraction: () => false, getAgentKind: () => 'codex', getSdkSessionId: async () => 'sdk',
+      createUserMessage: vi.fn<AgentInputCoordinatorDeps['createUserMessage']>(),
+      touchUserSend: vi.fn<AgentInputCoordinatorDeps['touchUserSend']>(async () => {}), emitProjection: () => {},
+    });
+    const item: AgentInputQueuedMessage = {
+      clientId: 'accepted-host-message', text: 'approved body', persistedContent: 'approved body',
+      model: 'model', effort: '', permissionMode: 'auto', workingDir: '/fixture',
+      chatMessage: { clientId: 'accepted-host-message', role: 'user', content: 'approved body' },
+      createOpts: { agentKind: 'codex', model: 'model', workingDir: '/fixture' },
+    };
+    const result = { content: [{ type: 'text' as const, text: '{"ok":true,"queued":true}' }] };
+    const runtimeResult = { content: [{ type: 'text' as const, text: '{"ok":true,"generation":7,"permission_mode":"ask"}' }] };
+    const changeRuntime = vi.fn<(args: unknown) => Promise<typeof runtimeResult>>(async () => runtimeResult);
+    const ports: PluginHostToolPorts = {
+      owner: () => ({ dataOwnerId: 'owner', ownerGeneration: 1 }), getGhost: () => ghost,
+      createRuntime: (server, caller) => ({ describe: name => ({ name, category: 'control' }), close: async () => {},
+        call: async (tool, args) => {
+          const admission = await authorizePluginHostToolCall({ caller, sessionId: undefined, server: server as 'cindy_helper', tool, args });
+          if (!admission.ok || !admission.run) throw Error('missing Host admission');
+          return await admission.run(async () => {
+            if (tool === 'set_session_runtime') return changeRuntime(args);
+            bindTaskActionInput('target', item);
+            coordinator.enqueue('target', item);
+            return result;
+          });
+        },
+      }),
+    };
+    const { broker, worker } = await bootWorker(ghost, undefined, true, (id, payload, current) =>
+      handlePluginHostToolRequest(id, payload, current, ports));
+    try {
+      const runtimeArgs = { session_id: 'target', expected_generation: 6, model: 'next', permission_mode: 'ask' };
+      worker.emitControl({ type: 'host-tool-request', reqId: 'runtime', server: 'cindy_helper', tool: 'set_session_runtime', args: runtimeArgs });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(worker.lastOf('node-host-result')).toMatchObject({ reqId: 'runtime', result: runtimeResult });
+      expect(changeRuntime).toHaveBeenCalledExactlyOnceWith(runtimeArgs);
+      worker.emitControl({ type: 'host-tool-request', reqId: 'queued', server: 'cindy_helper', tool: 'send_to_session', args: { target_session_id: 'target', message: item.text } });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(worker.lastOf('node-host-result')).toMatchObject({ reqId: 'queued', result });
+      expect(send).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(worker.killed).toBe(true);
+      running = false;
+      coordinator.wakeSession('target', 'source-worker-collected');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(send).toHaveBeenCalledOnce();
+      coordinator.wakeSession('target', 'duplicate-wake');
+      await vi.advanceTimersByTimeAsync(0);
+      expect(send).toHaveBeenCalledOnce();
+    } finally { coordinator.clearSession('target'); broker.destroyAll(); }
+  });
 
   it('未声明 childSpawn:代生请求收到结构化拒绝,不 fork', async () => {
     const { worker, spawned } = await bootWorker(childSpawnGhost(false));
@@ -2731,6 +3008,63 @@ describe('nodeRuntimeBroker · 宿主代启子进程(childSpawn,2026-07-23)', ()
       expect(spawned[0].child.killed).toBe(true);
       expect(worker.lastOf('child-exit')).toMatchObject({ childId });
     });
+  });
+
+  // #10189, unit: real broker+adapter; fake probe isolates system absence from
+  // native transport. Existing quota tests only delivered native exit. Four live
+  // children must block; one ESRCH must admit the next spawn without a restart.
+  it('10189 reclaims a missing exit on the next spawn and before stop snapshot', async () => {
+    const natives: FakeUtilityProcess[] = [];
+    const dead = new Set<number>();
+    const { broker, worker, spawned } = await bootWorker(childSpawnGhost(), () => {
+      const native = new FakeUtilityProcess();
+      native.pid = 8000 + natives.length;
+      natives.push(native);
+      native.kill.mockImplementation(() => { queueMicrotask(() => native.emit('exit', 0)); return true; });
+      const proc = adaptPluginNodeProcess(native, true, pid => {
+        if (dead.has(pid)) throw Object.assign(new Error('gone'), { code: 'ESRCH' });
+      });
+      queueMicrotask(() => native.emit('message', { type: 'ready' }));
+      return proc as unknown as FakeRawChild;
+    }, false);
+    try {
+      for (let i = 0; i < 4; i++) worker.emitControl({ type: 'spawn-child', reqId: `r${i}`, entry: 'node/maker.cjs' });
+      await vi.waitFor(() => expect(worker.sentControl.filter(m => m.type === 'spawn-child-result' && m.ok)).toHaveLength(4));
+      worker.emitControl({ type: 'spawn-child', reqId: 'full', entry: 'node/maker.cjs' });
+      expect(worker.lastOf('spawn-child-result')).toMatchObject({ reqId: 'full', ok: false });
+      dead.add(8000);
+      worker.emitControl({ type: 'spawn-child', reqId: 'recovered', entry: 'node/maker.cjs' });
+      await vi.waitFor(() => expect(worker.lastOf('spawn-child-result')).toMatchObject({ reqId: 'recovered', ok: true }));
+      expect(spawned).toHaveLength(5);
+      natives[0].emit('exit', 1);
+      natives[0].emit('error', 'late', 'channel');
+      expect(worker.sentControl.filter(m => m.type === 'child-exit')).toHaveLength(1);
+      dead.add(8001);
+      await broker.stopAndWait('node-ghost');
+      expect(natives[0].kill).not.toHaveBeenCalled();
+      expect(natives[1].kill).not.toHaveBeenCalled();
+    } finally { broker.destroyAll(); }
+  });
+
+  // #10189, unit: ready resolves a Promise, but exit can arrive in the same
+  // turn before promotion to children. The old suite covered only exit-before-ready.
+  it('10189 rejects a child that exits in the ready turn without retaining quota', async () => {
+    let attempt = 0;
+    const { broker, worker, spawned } = await bootWorker(childSpawnGhost(), () => {
+      const child = new FakeRawChild();
+      const exits = attempt++ === 0;
+      queueMicrotask(() => { child.emit('spawn'); if (exits) child.emit('exit', 0); });
+      return child;
+    }, false);
+    try {
+      worker.emitControl({ type: 'spawn-child', reqId: 'race', entry: 'node/maker.cjs' });
+      await vi.waitFor(() => expect(worker.lastOf('spawn-child-result')).toMatchObject({ reqId: 'race', ok: false }));
+      for (let i = 0; i < 4; i++) worker.emitControl({ type: 'spawn-child', reqId: `next${i}`, entry: 'node/maker.cjs' });
+      await vi.waitFor(() => expect(worker.sentControl.filter(m => m.type === 'spawn-child-result' && m.ok)).toHaveLength(4));
+      expect(spawned).toHaveLength(5);
+      expect(spawned[0].child.killed).toBe(false);
+      await broker.stopAndWait('node-ghost');
+    } finally { broker.destroyAll(); }
   });
 
   it('数量顶:同插件同时在世子进程超 4 个即拒', async () => {

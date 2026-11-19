@@ -9,9 +9,11 @@
   "exports": {
     ".": "./src/index.ts",
     "./cron": "./src/engine/cron.ts",
+    "./pr-trigger": "./src/pr-trigger.ts",
     "./types": "./src/types.ts",
     "./templates": "./src/builtin-templates.ts",
-    "./template-engine": "./src/engine/template.ts"
+    "./template-engine": "./src/engine/template.ts",
+    "./webhook-formats": "./src/webhook-formats.ts"
   },
   "scripts": {
     "build": "tsc --noEmit",

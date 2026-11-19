@@ -6,6 +6,7 @@ import {
   invalidateKimiAccountUsage,
   setAccountUsageOAuthReader,
   readKimiCodingAccountUsage,
+  readOpenCodeGoAccountUsage,
   isZhipuCodingPlanProvider,
   parseDeepSeekAccountUsage,
   parseZhipuCodingPlanQuota,
@@ -18,6 +19,14 @@ import {
   setAccountUsageOwnerStampReader,
   setAccountUsageProviderReader,
 } from '../provider-account-usage.js';
+
+const OPENCODE_GO_USAGE = {
+  usage: {
+    rolling: { status: 'ok', percent: 25, resetsAt: '2026-11-02T08:00:00Z' },
+    weekly: { status: 'ok', percent: 40, resetsAt: '2026-11-08T00:00:00Z' },
+    monthly: { status: 'rate-limited', percent: 100, resetsAt: '2026-12-01T00:00:00Z' },
+  },
+};
 
 function mkProvider(overrides: Partial<Provider> = {}): Provider {
   return {
@@ -747,5 +756,130 @@ describe('Kimi Code subscription quota', () => {
     nowMs += 15_001;
     fetcher.mockResolvedValueOnce(new Response(' '.repeat(65_537)));
     expect(await read()).toMatchObject({ status: 'unavailable', error: 'invalid-response' });
+  });
+});
+
+describe('OpenCode Go subscription quota', () => {
+  let current: Provider;
+  const fetcher = vi.fn<typeof fetch>();
+  beforeEach(() => {
+    resetProviderAccountUsageForTest();
+    nowMs = 1_000_000;
+    current = mkProvider({
+      id: 'opencode-go', name: 'OpenCode Go', source: 'user',
+      routing: { codex: { upstream: 'https://opencode.ai/zen/go/v1', authStrategy: 'api-key-header' } },
+    } as Partial<Provider>);
+    setAccountUsageProviderReader(() => current);
+    setAccountUsageOwnerStampReader(() => ({ dataOwnerId: 'fixture', generation: 1 }));
+    setAccountUsageKeyReader(() => 'synthetic-opencode-key');
+    setAccountUsageNow(() => nowMs);
+    fetcher.mockReset().mockResolvedValue(jsonRes(OPENCODE_GO_USAGE));
+    setAccountUsageFetch(fetcher);
+  });
+  afterEach(resetProviderAccountUsageForTest);
+  const read = (forceRefresh = false) => readOpenCodeGoAccountUsage({ providerId: 'opencode-go', forceRefresh });
+  const afterRejection = () => readOpenCodeGoAccountUsage({ providerId: 'opencode-go', agent: 'codex' }, 'after-limit');
+
+  // Unit: the real Go reader must not lend Goal a panel snapshot taken just
+  // before rejection. Existing tests only refreshed after the cache expired.
+  it('refreshes once for concurrent rejected turns even after a recent successful panel read', async () => {
+    const rolling = OPENCODE_GO_USAGE.usage.rolling;
+    fetcher.mockResolvedValueOnce(jsonRes({ usage: { rolling } }));
+    expect(await read(true)).toMatchObject({ snapshot: { windows: [{ limited: false }] } });
+    nowMs += 1000;
+    fetcher.mockResolvedValueOnce(jsonRes({ usage: { rolling: { ...rolling, status: 'rate-limited', percent: 100 } } }));
+    const [first, concurrent] = await Promise.all([afterRejection(), afterRejection()]);
+    expect(first).toMatchObject({ stale: false, snapshot: { windows: [{ limited: true, resetsAt: Date.parse(rolling.resetsAt) }] } });
+    expect(concurrent).toEqual(first);
+    expect(await afterRejection()).toEqual(first);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('shares a rejected turn’s pending snapshot with both the overview and the default-engine settings panel', async () => {
+    current.routing.pi = { upstream: 'https://api.kimi.com/coding', authStrategy: 'api-key-header' };
+    const [goal, overview, settings] = await Promise.all([
+      afterRejection(), read(true), readProviderAccountUsage({ providerId: 'opencode-go', forceRefresh: true }),
+    ]);
+    expect(goal).toMatchObject({ status: 'ready', agent: 'codex', snapshot: { kind: 'opencode-go-quota' } });
+    expect(overview).toEqual(goal);
+    expect(settings).toEqual(goal);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes after rejection when a panel read started before the model was rejected', async () => {
+    const rolling = OPENCODE_GO_USAGE.usage.rolling;
+    let finishPanel!: (response: Response) => void;
+    fetcher.mockImplementationOnce(() => new Promise<Response>(resolve => { finishPanel = resolve; }));
+    fetcher.mockResolvedValueOnce(jsonRes({ usage: { rolling: { ...rolling, status: 'rate-limited', percent: 100 } } }));
+    const panel = read(true);
+    const goal = afterRejection();
+    finishPanel(jsonRes({ usage: { rolling } }));
+    await panel;
+    const result = await goal;
+    expect(result).toMatchObject({ stale: false, snapshot: { windows: [{ limited: true }] } });
+    expect(await read()).toEqual(result);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves a manual refresh that arrives during a passive cache hit', async () => {
+    const rolling = OPENCODE_GO_USAGE.usage.rolling;
+    fetcher.mockResolvedValueOnce(jsonRes({ usage: { rolling } }));
+    const cached = await read();
+    nowMs += 16_000;
+    fetcher.mockResolvedValueOnce(jsonRes({ usage: { rolling: { ...rolling, percent: 40 } } }));
+    const [passive, manual] = await Promise.all([read(), read(true)]);
+    expect(passive).toEqual(cached);
+    expect(manual).toMatchObject({ snapshot: { windows: [{ usedPercent: 40 }] } });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('discards a queued post-limit refresh if its account changes before the panel returns', async () => {
+    let finishPanel!: (response: Response) => void;
+    fetcher.mockImplementationOnce(() => new Promise<Response>(resolve => { finishPanel = resolve; }));
+    const panel = read(true);
+    const goal = afterRejection();
+    setAccountUsageKeyReader(() => 'synthetic-replacement-key');
+    finishPanel(jsonRes(OPENCODE_GO_USAGE));
+    for (const result of await Promise.all([panel, goal])) {
+      expect(result).toMatchObject({ status: 'unavailable', error: 'updating' });
+    }
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('honors quota-endpoint backoff even after the model rejects a turn', async () => {
+    fetcher.mockResolvedValueOnce(new Response(null, { status: 429, headers: { 'retry-after': '120' } }));
+    expect(await read(true)).toMatchObject({ status: 'unavailable' });
+    nowMs += 30_000;
+    expect(await afterRejection()).toMatchObject({ status: 'unavailable', retryAt: 1_120_000 });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads the official usage endpoint with the stored API key and caches it', async () => {
+    expect(await read()).toMatchObject({
+      status: 'ready', agent: 'codex', dashboardUrl: 'https://opencode.ai/console',
+      snapshot: { kind: 'opencode-go-quota', windows: [
+        { id: 'rolling', usedPercent: 25, limited: false },
+        { id: 'weekly', usedPercent: 40, limited: false },
+        { id: 'monthly', usedPercent: 100, limited: true },
+      ] },
+    });
+    expect(fetcher).toHaveBeenCalledWith('https://opencode.ai/zen/go/v1/usage', expect.objectContaining({
+      redirect: 'error', headers: expect.objectContaining({ Authorization: 'Bearer synthetic-opencode-key' }),
+    }));
+    await read();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not send a Go key to a proxy copied into the same route shape', async () => {
+    current.routing.codex!.upstream = 'https://proxy.example/zen/go/v1';
+    expect(await read()).toEqual({ status: 'unsupported' });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('clears a cached quota after authentication is revoked', async () => {
+    await read();
+    nowMs += 300_001;
+    fetcher.mockResolvedValueOnce(jsonRes({}, 401));
+    expect(await read(true)).toMatchObject({ status: 'unavailable', error: 'auth' });
   });
 });

@@ -1,5 +1,6 @@
+import type { DownloadProgress } from './downloadProgress';
 import type { GhostManifest, InstalledGhost } from './ghost';
-import type { PluginDownloadStatistics, PluginIconMetadata, PluginUsageStatistics } from '@cindy/plugin-protocol';
+import type { GhostReadmeContent, PluginDownloadStatistics, PluginIconMetadata, PluginUsageStatistics } from '@cindy/plugin-protocol';
 
 export type PluginMarketScope = 'public' | 'organization' | 'personal';
 export type PluginMarketInstallState =
@@ -66,6 +67,29 @@ export interface PluginMarketSnapshot {
   organizationAccessError?: string | null;
 }
 
+export interface PluginMarketQuery {
+  query?: string;
+  scope?: 'all' | PluginMarketScope | 'custom';
+  cursor?: string | null;
+  limit?: number;
+  excludeInstalled?: boolean;
+  /** Readers that only need items/cursors can omit the complete first-page count. */
+  counts?: boolean;
+}
+export interface PluginMarketCounts {
+  all: number;
+  public: number;
+  organization: number;
+  personal: number;
+  custom: number;
+}
+export interface PluginMarketPage extends PluginMarketSnapshot {
+  customSourceCounts?: Array<{ name: string; count: number }>;
+  nextCursor: string | null;
+  /** Complete query counts on the first page; subsequent pages reuse them. */
+  counts: PluginMarketCounts | null;
+}
+
 /** 服务端清理的一次性汇总提示：按 owner 缓存，consume 前跨多轮对账累加，consume 后即清。 */
 export interface PluginRemovalUserNotice {
   count: number;
@@ -76,6 +100,11 @@ export interface PluginRemovalUserNotice {
 /** 详情携带安装前展示给用户的 manifest；官方来自 release，自定义来自本地发现。 */
 export interface PluginMarketDetail extends PluginMarketItem {
   manifest: GhostManifest;
+  /**
+   * 详细介绍，只在详情页请求时提供：官方市场的图片是服务端签发的短期地址，自定义市场
+   * 的图片是 data URL。`null` 表示没有介绍；字段缺省表示调用方没有请求。
+   */
+  readme?: GhostReadmeContent | null;
 }
 
 /** Main 生成并接受的自定义市场图标身份键形状；首位 0 为保留值。 */
@@ -127,6 +156,18 @@ export interface PluginMarketInstallOptions {
 /** 市场安装成功后返回已落位插件。 */
 export interface PluginMarketInstallResult {
   ghost: InstalledGhost;
+}
+
+/**
+ * Pushed on `plugin-market:install-progress` to the window that started an install or update.
+ * Display only: the install's outcome is still the `plugin-market:install` result. Local IPC,
+ * not part of the device-link or plugin wire contracts.
+ */
+export interface PluginMarketInstallProgress {
+  pluginId: string;
+  download: DownloadProgress;
+  /** The verified package is waiting for the user to confirm its permissions. */
+  awaitingConsent?: true;
 }
 
 /* ------------------------------------------------------------------------ */
@@ -214,4 +255,19 @@ export function parseCustomMarketPluginId(
  */
 export function customMarketReleaseId(marketName: string, ghostId: string, version: string): string {
   return `custom:${encodeURIComponent(marketName)}:${encodeURIComponent(ghostId)}:${encodeURIComponent(version)}`;
+}
+
+/** A task or button may offer one installation only when all configured
+ * sources resolve the requested identity to one available listing. */
+export function uniquePluginInstallCandidate(
+  market: PluginMarketSnapshot,
+  target: { ghostId: string; namespace?: string | null; marketPluginId?: string },
+): PluginMarketItem | undefined {
+  if (market.unavailableReason || market.organizationAccessError || market.unavailableCustomSourceNames?.length) return;
+  const matches = market.items.filter(item =>
+    item.ghostId === target.ghostId &&
+    (target.namespace === undefined || item.namespace === target.namespace) &&
+    (!target.marketPluginId || item.pluginId === target.marketPluginId),
+  );
+  if (matches.length === 1 && matches[0].installState === 'not-installed') return matches[0];
 }

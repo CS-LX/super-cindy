@@ -62,6 +62,7 @@ export interface GhostInstallConsentRequest {
   /** Host-selected presentation; capability confirmations do not install/update a package. */
   purpose?: 'task-capability' | 'share-replace' | 'ui-capability';
   requestId: string;
+  installationSource?: import('@cindy/maker-shared/mcp-apps').PluginInstallationSource;
   /** Host-verified trust shown on the local installation dialog. */
   trust?: GhostTrustLevel;
   initiator: GhostInstallConsentInitiator;
@@ -69,7 +70,7 @@ export interface GhostInstallConsentRequest {
   /** 自定义市场名称（用户添加来源时起的名字，按原样展示）。 */
   originLabel?: string;
   /** Host-generated installation identity and account impact, never package-provided. */
-  target?: { namespace: string | null; sourceChanged: boolean; otherCopies: number };
+  target?: { namespace: string | null; sourceChanged: boolean; otherCopies: number; organizationIdentityUnavailable?: true };
   facts: GhostInstallConsentFacts;
 }
 

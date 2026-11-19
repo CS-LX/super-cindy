@@ -67,6 +67,8 @@ export interface DirEntry {
   type: 'file' | 'directory';
   size: number;
   mtimeMs: number;
+  /** Optional on older hosts; always relative to the workdir, never an absolute path. */
+  symlinkTarget?: string;
 }
 
 interface UseFileTreeOptions {
@@ -154,9 +156,11 @@ export interface UseFileTreeReturn {
 
 const ROOT_KEY = '';
 const EVENT_COALESCE_MS = 50;
+// Bound restore bursts before they reach local filesystem IPC or a remote host.
+const RESTORE_CONCURRENCY = 8;
 
 /**
- * 结构等价判定 —— name/type/relPath 完全相同(顺序也相同, listDir 是稳定排序),
+ * 结构等价判定 —— name/type/relPath/symlinkTarget 完全相同(含顺序),
  * 只有 mtime/size 变化时返回 true。
  *
  * 用途:setEntries 前的去重。chokidar/parcel 对我们自己 writeFile 的原子 rename
@@ -179,6 +183,7 @@ function entriesStructurallyEqual(
     if (x.relPath !== y.relPath) return false;
     if (x.name !== y.name) return false;
     if (x.type !== y.type) return false;
+    if (x.symlinkTarget !== y.symlinkTarget) return false;
   }
   return true;
 }
@@ -229,14 +234,25 @@ interface FileTreeStore {
   tokens: Map<string, number>;
   /** Single-flight directory requests plus one dirty bit for a trailing scan. */
   inFlight: Map<string, DirectoryRefresh>;
-  /** Parent directories observed by the IPC listener in the current turn. */
-  pendingEventParents: Set<string>;
+  /** Changed logical paths observed during the current coalescing window. */
+  pendingEventPaths: Set<string>;
   eventFlushTimer: ReturnType<typeof setTimeout> | null;
   /** chokidar listener 取消函数。首个挂载时挂、refCount 归 0 时调。 */
   watcherOff: (() => void) | null;
   /** ref count + listeners 用来驱动 lifecycle 和重渲订阅。 */
   refCount: number;
+  /** Invalidates queued restoration work when the final consumer leaves. */
+  restoreGeneration: number;
+  /** Full refreshes during restoration share its workers and pending paths. */
+  restoreQueue: DirectoryRestoreQueue | null;
   listeners: Set<() => void>;
+}
+
+interface DirectoryRestoreQueue {
+  /** Refresh retries precede untouched restoration paths without adding workers. */
+  priority: string[];
+  pending: Set<string>;
+  promise: Promise<void>;
 }
 
 interface DirectoryRefresh {
@@ -248,6 +264,44 @@ interface DirectoryRefresh {
 
 /** 全局 stores 表。key 由 storeKey() 算,同 (workdir, options) 共享同一份。 */
 const stores = new Map<string, FileTreeStore>();
+
+type AliasChange = { workdir: string; remoteHostId: string | null; deviceId: string | null; relPath: string };
+const aliasChangeListeners = new Set<(change: AliasChange) => void>();
+/** Directory refresh can discover a retarget even when the watcher missed it. */
+export function onDirectoryAliasChange(listener: (change: AliasChange) => void): () => void {
+  aliasChangeListeners.add(listener);
+  return () => { aliasChangeListeners.delete(listener); };
+}
+
+
+/** Share the currently browsed aliases with content-cache invalidation. The
+ * existing stores own their lifetime and endpoint scope; no disk scan or
+ * separate long-lived alias registry is needed. */
+export function fileTreeEventPaths(
+  workdir: string,
+  relPath: string,
+  remoteHostId: string | null,
+  deviceId: string | null,
+): Set<string> {
+  const paths = new Set([relPath]);
+  for (const store of stores.values()) {
+    if (store.workdir !== workdir || store.remoteHostId !== remoteHostId || store.deviceId !== deviceId) continue;
+    for (const entries of store.snapshot.entries.values()) {
+      for (const entry of entries) {
+        const alias = directoryAliasEventPath(entry, relPath);
+        if (alias !== null) paths.add(alias);
+      }
+    }
+  }
+  return paths;
+}
+
+function directoryAliasEventPath(entry: DirEntry, eventRelPath: string): string | null {
+  if (entry.type !== 'directory' || entry.symlinkTarget === undefined) return null;
+  if (eventRelPath === entry.symlinkTarget || entry.symlinkTarget.startsWith(`${eventRelPath}/`)) return entry.relPath;
+  const prefix = entry.symlinkTarget === '' ? '' : `${entry.symlinkTarget}/`;
+  return eventRelPath.startsWith(prefix) ? `${entry.relPath}/${eventRelPath.slice(prefix.length)}` : null;
+}
 
 function storeKey(opts: Required<UseFileTreeOptions>): string {
   const remote = opts.remoteHostId ? `::remote=${opts.remoteHostId}` : '';
@@ -479,10 +533,12 @@ function getOrCreateStore(opts: Required<UseFileTreeOptions>): FileTreeStore {
     persistedExpanded,
     tokens: new Map(),
     inFlight: new Map(),
-    pendingEventParents: new Set(),
+    pendingEventPaths: new Set(),
     eventFlushTimer: null,
     watcherOff: null,
     refCount: 0,
+    restoreGeneration: 0,
+    restoreQueue: null,
     listeners: new Set(),
   };
   // 继承来的展开集合要按**（可能已过滤的）**树剪一次：剪枝那条路径挂在 fetch
@@ -538,9 +594,24 @@ async function fetchDirOnce(store: FileTreeStore, relPath: string): Promise<void
       return;
     }
     const nextEntries = new Map(store.snapshot.entries);
+    const retargeted = (prevList ?? []).filter(old => old.symlinkTarget !==
+      list.find(entry => entry.relPath === old.relPath)?.symlinkTarget);
+    const reload: string[] = [];
+    for (const key of nextEntries.keys()) {
+      if (retargeted.some(entry => key === entry.relPath || key.startsWith(`${entry.relPath}/`))) {
+        nextEntries.delete(key);
+        store.tokens.set(key, (store.tokens.get(key) ?? 0) + 1);
+        if (store.snapshot.expanded.has(key)) reload.push(key);
+      }
+    }
     nextEntries.set(relPath, list);
     store.snapshot = { ...store.snapshot, entries: nextEntries };
     emit(store);
+    for (const entry of retargeted) {
+      for (const listener of aliasChangeListeners) listener({ workdir: store.workdir,
+        remoteHostId: store.remoteHostId, deviceId: store.deviceId, relPath: entry.relPath });
+    }
+    for (const key of reload) void fetchDir(store, key);
     // 过渡期(seed)借来的展开态在新树里可能已不可达,root 数据落地即剪。
     if (relPath === ROOT_KEY) {
       pruneExpandedForCurrentTree(store, wasSeeded ? { keep: store.persistedExpanded } : undefined);
@@ -648,14 +719,34 @@ function addDocModeAncestors(
  * directory can disappear when its last visible descendant is removed.
  */
 function queueEventRefresh(store: FileTreeStore, eventRelPath: string): void {
-  store.pendingEventParents.add(parentPath(eventRelPath));
+  store.pendingEventPaths.add(eventRelPath);
   if (store.eventFlushTimer) return;
   store.eventFlushTimer = setTimeout(() => {
     store.eventFlushTimer = null;
-    const parents = [...store.pendingEventParents];
-    store.pendingEventParents.clear();
+    const events = [...store.pendingEventPaths];
+    store.pendingEventPaths.clear();
     if (store.refCount === 0) return;
-
+    const parents = new Set(events.map(parentPath));
+    // Watchers report real target paths rather than every directory alias. Map
+    // only aliases already present in this lazy tree; never scan/follow the disk
+    // to discover aliases or refresh unrelated cached directories.
+    for (const entries of store.snapshot.entries.values()) {
+      for (const entry of entries) {
+        if (entry.type !== 'directory' || entry.symlinkTarget === undefined) continue;
+        const target = entry.symlinkTarget;
+        for (const eventRelPath of events) {
+          const alias = directoryAliasEventPath(entry, eventRelPath);
+          if (alias !== null) parents.add(parentPath(alias));
+          // A removed target/ancestor hides the link; a retargeted link also needs
+          // its cached children refreshed even when its logical name stays put.
+          if (eventRelPath === target || target.startsWith(`${eventRelPath}/`)
+              || eventRelPath === entry.relPath) {
+            parents.add(parentPath(entry.relPath));
+            parents.add(entry.relPath);
+          }
+        }
+      }
+    }
     const targets = new Set<string>();
     for (const parent of parents) {
       if (store.docMode) {
@@ -671,6 +762,7 @@ function queueEventRefresh(store: FileTreeStore, eventRelPath: string): void {
 /** 首次挂载触发:initial fetch + 恢复 localStorage expanded + 启动 watcher。
  *  幂等:重复调用直接 no-op(refCount 已 >0)。 */
 async function initStore(store: FileTreeStore): Promise<void> {
+  const generation = ++store.restoreGeneration;
   // 恢复 localStorage 持久化的 expanded 集合(workdir × 视图模式共享,见
   // expandedStore 的 scope 说明)。seed 带来的展开集合是过渡态(见
   // findRevealSiblingSnapshot):先一并留着让整树平滑替换,root 数据回来时
@@ -698,8 +790,8 @@ async function initStore(store: FileTreeStore): Promise<void> {
     });
   }
 
-  // Initial root fetch + 已 restore expanded 目录的并行 lazy fetch。每个 listDir
-  // <12ms,即使 50 个 restored 也能在 <1s 内 warm 完。
+  // Root is first in a bounded restore queue. Starting every persisted directory
+  // at once floods main with readdir/lstat completions and delays the root reply.
   //
   // seed 带来的展开父目录(不在 restored 里的那些)按**方向**分别处理:
   //  - 切到 reveal:hidden 态的数据缺了被忽略目录,不重拉就永远看不到
@@ -717,11 +809,27 @@ async function initStore(store: FileTreeStore): Promise<void> {
     ? inheritedExpanded
     : inheritedExpanded.filter((p) => !store.snapshot.entries.has(p));
   invalidateBorrowedCollapsedEntries(store);
-  await Promise.all([
-    fetchDir(store, ROOT_KEY),
-    ...[...restored].map((p) => fetchDir(store, p)),
-    ...refetchInherited.map((p) => fetchDir(store, p)),
-  ]);
+  const paths = [...new Set([ROOT_KEY, ...restored, ...refetchInherited])];
+  const queue: DirectoryRestoreQueue = { priority: [], pending: new Set(paths), promise: Promise.resolve() };
+  store.restoreQueue = queue;
+  // Publish queued loading paths together. Otherwise every newly freed slot
+  // introduces another synchronous store notification/render during restoration.
+  store.snapshot = {
+    ...store.snapshot,
+    loadingPaths: new Set([...store.snapshot.loadingPaths, ...paths]),
+  };
+  emit(store);
+  let next = 0;
+  queue.promise = Promise.all(Array.from({ length: Math.min(RESTORE_CONCURRENCY, paths.length) }, async () => {
+    while ((queue.priority.length > 0 || next < paths.length) && store.restoreGeneration === generation) {
+      const path = queue.priority.shift() ?? paths[next++];
+      queue.pending.delete(path);
+      await fetchDir(store, path);
+    }
+  })).then(() => undefined);
+  await queue.promise;
+  if (store.restoreGeneration !== generation) return;
+  store.restoreQueue = null;
   store.snapshot = { ...store.snapshot, initialLoading: false };
   emit(store);
 }
@@ -753,9 +861,11 @@ function invalidateBorrowedCollapsedEntries(store: FileTreeStore): void {
 
 /** 最后一个订阅者离开:停 watcher、从 stores 表移除。store 对象被回收。 */
 function disposeStore(store: FileTreeStore): void {
+  store.restoreGeneration++;
+  store.restoreQueue = null;
   if (store.eventFlushTimer) clearTimeout(store.eventFlushTimer);
   store.eventFlushTimer = null;
-  store.pendingEventParents.clear();
+  store.pendingEventPaths.clear();
   store.inFlight.clear();
   if (store.watcherOff) {
     store.watcherOff();
@@ -812,6 +922,34 @@ async function refresh(store: FileTreeStore): Promise<void> {
     ...store.snapshot.entries.keys(),
     ...store.snapshot.expanded,
   ]);
+  const queue = store.restoreQueue;
+  if (queue) {
+    const running: Promise<void>[] = [];
+    const added: string[] = [];
+    for (const path of targets) {
+      // A queued read has not observed the filesystem yet; it already covers
+      // this refresh. In-flight reads still need the normal trailing scan.
+      if (queue.pending.has(path)) continue;
+      if (store.inFlight.has(path)) {
+        running.push(fetchDir(store, path));
+      } else {
+        // targets starts with root: retry it at the next free slot rather than
+        // leaving a stale/error root behind many remote restoration round trips.
+        queue.priority.push(path);
+        queue.pending.add(path);
+        added.push(path);
+      }
+    }
+    if (added.length > 0) {
+      store.snapshot = {
+        ...store.snapshot,
+        loadingPaths: new Set([...store.snapshot.loadingPaths, ...added]),
+      };
+      emit(store);
+    }
+    await Promise.all([queue.promise, ...running]);
+    return;
+  }
   await Promise.all([...targets].map((p) => fetchDir(store, p)));
 }
 

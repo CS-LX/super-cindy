@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { BUNDLED_CATALOG, buildUserProvider } from '@cindy/model-providers';
 import { providerReferencePriceQuote, getModelPriceQuote, modelPricingKey } from '../../../shared/modelPriceQuote.js';
 
-vi.mock('../../maker-host/active-catalog.js', () => ({
-  getActiveCatalog: () => ({ ...BUNDLED_CATALOG, providers: [buildUserProvider({
+// Match the production catalog's stable snapshot: rebuilding these providers on every
+// lookup makes each historical projection pay for the same account expansion repeatedly.
+const accountCatalog = { ...BUNDLED_CATALOG, providers: [buildUserProvider({
     id: 'openai-account', name: 'Account', auth: { method: 'oauth', native: 'codex' },
     runtimes: { codex: { baseUrl: 'https://chatgpt.com/backend-api/codex', models: [{ id: 'gpt-5.6-luna', name: 'Luna' }] } },
   }), buildUserProvider({ id: 'router-account', name: 'Router', runtimes: {
@@ -32,7 +33,10 @@ vi.mock('../../maker-host/active-catalog.js', () => ({
     // The active catalog fills Claude membership from account discovery.
     if (native === 'claude') provider.models.codex = [{ id: 'claude-sonnet-4-6', name: 'Sonnet', contextWindow: 200000, efforts: [], defaultEffort: null }];
     return provider;
-  })] }),
+  })] };
+
+vi.mock('../../maker-host/active-catalog.js', () => ({
+  getActiveCatalog: () => accountCatalog,
 }));
 vi.mock('../modelPriceOverrideStore.js', () => ({
   applyModelPriceOverrides: (pricing: unknown) => pricing,
@@ -41,7 +45,14 @@ vi.mock('../modelPriceOverrideStore.js', () => ({
 }));
 
 import { accountReferencePriceQuote } from '../accountReferencePrice.js';
-import { getReferenceModelPricing, getCodexProviderSubscriptionValuePrice } from '../referenceModelPricing.js';
+import { BrowserWindow } from 'electron';
+import type { CatalogModel } from '@cindy/model-providers';
+import { projectSubscriptionPoolCatalog } from '../../maker-host/subscriptionPoolCatalog.js';
+import {
+  broadcastReferenceModelPricing, followReferenceModelPricingAfterProviderChange,
+  getReferenceModelPricing, getCodexProviderSubscriptionValuePrice, REFERENCE_MODEL_PRICING_CHANGED_CHANNEL,
+  setReferencePricingDisplayProviders,
+} from '../referenceModelPricing.js';
 
 describe('independent subscription account reference prices', () => {
   it.each(['claude-code', 'codex', 'pi'] as const)(
@@ -143,5 +154,124 @@ it('values subscriptions from manufacturer prices even when the supplier publish
   } finally {
     if (original === undefined) delete route.referencePrices;
     else route.referencePrices = original;
+  }
+});
+
+// PR #8489 review: provider-share usage history values each day with that day's catalog.
+// It must keep route tariffs (not the subscription-only manufacturer price), resolve a tariff
+// that has expired by today, and leave gaps unpriced instead of borrowing another interval.
+it('resolves the reference catalog for a historical day with route tariffs', () => {
+  const registry = BUNDLED_CATALOG.modelRegistry!;
+  const route = registry.models.find(model => model.id === 'openai/gpt-5.6-luna')!.routes[0];
+  const original = route.referencePrices;
+  const source = { kind: 'provider-official' as const, url: 'https://example.com', verifiedAt: '2026-01-01' };
+  try {
+    route.referencePrices = [
+      { currency: 'USD', variant: 'standard', inputPerMtok: 111, outputPerMtok: 1,
+        effectiveFrom: '2026-01-01', effectiveUntil: '2026-06-01', source },
+      { currency: 'USD', variant: 'standard', inputPerMtok: 222, outputPerMtok: 1,
+        effectiveFrom: '2026-06-01', effectiveUntil: '2026-08-01', source },
+    ];
+    const quote = (at?: string) => getModelPriceQuote(getReferenceModelPricing({ at }), 'openai', 'gpt-5.6-luna');
+    expect(quote('2026-03-01')?.inputPerMtok).toBe(111);
+    expect(quote('2026-07-01')?.inputPerMtok).toBe(222);
+    expect(quote('2025-12-01')).toBeUndefined();
+    expect(quote()).toBeUndefined();
+    // Native subscription accounts in the same dated catalog still value from manufacturer prices.
+    expect(getModelPriceQuote(getReferenceModelPricing({ at: '2026-07-15' }), 'openai-account', 'gpt-5.6-luna', 'codex'))
+      .toMatchObject({ providerId: 'openai-account', inputPerMtok: 1 });
+  } finally {
+    if (original === undefined) delete route.referencePrices;
+    else route.referencePrices = original;
+  }
+});
+
+// Unit: an independent ChatGPT account page showed no price tier for the models its own
+// account discovery added (GPT-6.2 Sol / Astra, 2026-11-18). Those models are not in the active
+// catalog: projectSubscriptionPoolCatalog adds them for the lists the renderer shows, and the
+// broadcast must quote that same membership. Entry: the main-side broadcast the renderer
+// subscribes to, through the real pool projection.
+it('quotes models added by an account\'s own discovery, once per burst and only when prices change', async () => {
+  const sent: Array<Record<string, Record<string, unknown>>> = [];
+  const windows = vi.spyOn(BrowserWindow, 'getAllWindows').mockReturnValue([{
+    isDestroyed: () => false,
+    webContents: { send: (channel: string, pricing: never) => {
+      if (channel === REFERENCE_MODEL_PRICING_CHANGED_CHANNEL) sent.push(pricing);
+    } },
+  } as never]);
+  const tick = () => new Promise(resolve => setImmediate(resolve));
+  const known = accountCatalog.providers.find(provider => provider.id === 'openai-account')!.models.codex![0]!;
+  let discovered: CatalogModel[] = [];
+  setReferencePricingDisplayProviders(() => projectSubscriptionPoolCatalog(accountCatalog, {
+    readPool: () => ({ legacyCodexAccounts: { 'openai-account': 'pool-account' }, accounts: [{ id: 'pool-account' }] }) as never,
+    codexAccountState: () => ({ authenticated: true }),
+    readSubscriptionPoolCodexModels: providerId => providerId === 'openai-account' ? discovered : null,
+    getActiveCatalogWithCodexModels: models => ({ ...accountCatalog, providers: [{
+      ...accountCatalog.providers[0]!, id: 'openai', models: { codex: [...models] },
+    }] }),
+    readSubscriptionPoolClaudeModels: () => null,
+    getActiveCatalogWithClaudeModels: () => accountCatalog,
+    readMergedProviderAccount: () => undefined,
+    accountProviderId: () => 'openai-account',
+    readProviderBoundAccountIds: () => new Set<string>(),
+  }, true).providers);
+  const key = modelPricingKey('gpt-5.6-sol', 'codex');
+  try {
+    broadcastReferenceModelPricing();
+    expect(sent).toHaveLength(1);
+    expect(sent[0]['openai-account'][modelPricingKey(known.id, 'codex')]).toBeDefined();
+    expect(sent[0]['openai-account'][key]).toBeUndefined();
+
+    // Provider changed, prices did not: nothing is sent.
+    followReferenceModelPricingAfterProviderChange();
+    await tick();
+    expect(sent).toHaveLength(1);
+
+    // The account discovers a model the active catalog does not list for it.
+    discovered = [{ ...known, id: 'gpt-5.6-sol', name: 'Sol' }];
+    expect(getReferenceModelPricing()['openai-account'][key]).toBeUndefined();
+    for (let i = 0; i < 5; i++) followReferenceModelPricingAfterProviderChange();
+    expect(sent).toHaveLength(1);
+    await tick();
+    expect(sent).toHaveLength(2);
+    expect(sent[1]['openai-account'][key]).toMatchObject({ providerId: 'openai-account', modelId: 'gpt-5.6-sol' });
+
+    await tick();
+    expect(sent).toHaveLength(2);
+  } finally {
+    setReferencePricingDisplayProviders(null);
+    windows.mockRestore();
+  }
+});
+
+// Unit: the follow-up runs in setImmediate, where an escaping error becomes an
+// uncaughtException and the main process shuts down (review on #11203). A closing window
+// or a failing account read must cost one price update, not the app.
+it('keeps a failing window or account read inside the deferred follow-up', async () => {
+  const received: unknown[] = [];
+  const windows = vi.spyOn(BrowserWindow, 'getAllWindows').mockReturnValue([
+    { isDestroyed: () => false, webContents: { send: () => { throw new Error('Object has been destroyed'); } } },
+    { isDestroyed: () => false, webContents: { send: (_channel: string, pricing: unknown) => received.push(pricing) } },
+  ] as never);
+  const tick = () => new Promise(resolve => setImmediate(resolve));
+  const account = accountCatalog.providers.find(provider => provider.id === 'openai-account')!;
+  const before = account.models.codex!;
+  try {
+    broadcastReferenceModelPricing();
+    expect(received).toHaveLength(1);
+
+    account.models.codex = [...before, { ...before[0]!, id: 'gpt-5.6-sol', name: 'Sol' }];
+    followReferenceModelPricingAfterProviderChange();
+    await tick();
+    expect(received).toHaveLength(2);
+
+    setReferencePricingDisplayProviders(() => { throw new Error('pool unreadable'); });
+    followReferenceModelPricingAfterProviderChange();
+    await tick();
+    expect(received).toHaveLength(2);
+  } finally {
+    account.models.codex = before;
+    setReferencePricingDisplayProviders(null);
+    windows.mockRestore();
   }
 });

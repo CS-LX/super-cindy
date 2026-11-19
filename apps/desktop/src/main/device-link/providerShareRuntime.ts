@@ -1,3 +1,8 @@
+import { flushStandbyUsage, importStandbyUsage } from './providerShareAvailabilityUsage.js';
+import { publishShareAvailability, refreshStandbyGuests } from './providerShareAvailability.js';
+import { onProviderGroupChanged } from '../provider-group/store.js';
+import { onRemoteProviderAccessChanged } from '../maker-host/remote-provider-access-store.js';
+import { onDeviceLinkSettingChanged } from './settings-store.desktop.js';
 import { isProviderShareMemberBudget } from '../../shared/providerShareBudget.js';
 import { CONTROLLED_MODEL_CATALOG_CHANGED } from '../../shared/controlledModelCatalog.js';
 import { readMemberBudgetStatus, supportsMemberBudget } from './providerShareBudgetRuntime.js';
@@ -5,10 +10,10 @@ import { isRemoteAgentLimitsPatch } from '../../shared/remoteAgentLimits.js';
 import { supportsSubscriptionFastPolicy, unifiedModelKeyId } from '@cindy/model-providers';
 import { providerFastPolicy } from '../maker-host/provider-fast-policy-store.js';
 import { notifySubscriptionFastPolicyChanged } from '../maker-host/subscription-fast-policy.js';
-import { notifyProviderShareCatalogChanged } from './dispatch.js';
+import { notifyProviderShareCatalogChanged } from './dispatch.desktop.js';
 import { DEVICE_LINK_PUSH } from '../../shared/deviceLinkIpc.js';
 import { readRemoteAgentLimitsState, saveRemoteAgentLimits } from '../remote-agent/host/limitsStore.js';
-import { remoteAgentLimitUsage, revalidateRemoteModelAccess } from './dispatch.js';
+import { remoteAgentLimitUsage, revalidateRemoteModelAccess } from './dispatch.desktop.js';
 /**
  * 供应商分享的本机接线：分享者与受邀者两侧运行时的起停、推送给 Renderer、系统通知，以及
  * Renderer 的命令通道。账号操作只接受本机应用窗口，不能经设备互联从别的电脑调用。
@@ -22,11 +27,14 @@ import {
   PROVIDER_SHARE_RECEIVED_CATALOGS_CHANNEL,
   MAX_FRAME_BYTES,
   REMOTE_AGENT_CHANNEL,
+  isProviderAccessDeniedError,
   parseProviderSharePeer,
   providerShareGuestPeer,
+  providerShareFavoriteSource,
   scrubProviderShareLabel,
   scrubSharedProviderCatalog,
   type InvokeResultPayload,
+  type ProviderShareFavoriteSource,
   type ProviderShareReceived,
   type ProviderShareReceivedCatalog,
 } from '@cindy/device-link';
@@ -46,15 +54,15 @@ import {
   type ProviderUsageHistoryView,
 } from '../../shared/providerShare.js';
 import { getAuthState, getDeviceId } from '../authManager.js';
-import { parseProviderShareInsights, PROVIDER_SHARE_INSIGHTS_CHANNEL } from '../../shared/providerShareInsights.js';
+import { type ProviderShareInsights, parseProviderShareInsights, PROVIDER_SHARE_INSIGHTS_CHANNEL } from '../../shared/providerShareInsights.js';
 import { isProviderGroupProviderId } from '../../shared/providerGroup.js';
 import { providerShareVisibility } from './providerShareVisibility.js';
 import { remoteModelAccess } from './remoteModelAccess.js';
 import { isRemoteModelSelection, type RemoteModelAccessView } from '../../shared/remoteModelAccess.js';
 import { createProviderShareInsightsReader } from './providerShareInsights.js';
-import { readProviderShareQuota, readProviderShareQuotaAccount } from './providerShareQuota.js';
+import { readProviderShareQuota, readProviderShareQuotaAccountResult } from './providerShareQuota.js';
 import { isDataOwnerPushStamp } from '../../shared/dataOwnerPush.js';
-import { t } from '../i18n.js';
+import { t } from '../i18n.desktop.js';
 import { createLogger } from '../logger.js';
 import { focusMainWindow } from '../deepLink.js';
 import { isFocusedAppContentWindow } from '../windowFocusClassifier.js';
@@ -63,11 +71,18 @@ import { isRemoteProviderInvocationAllowed } from '../maker-host/remote-provider
 import { assertTrustedAppRendererEvent } from '../security/trustedAppRenderer.js';
 import { currentLedgerCurrency } from '../usage/ledgerCurrency.js';
 import { getGatewayModelPricing, getModelPriceQuote } from '../usage/modelPricing.js';
+import {
+  getReferenceModelPricing,
+  readModelPriceOverridesSnapshot,
+  type ModelPriceOverridesSnapshot,
+} from '../usage/referenceModelPricing.js';
+import type { ModelPriceQuote } from '../../shared/regionalMoney.js';
 import { computePriceQuoteTurnMoney, normalizeModelIdForPricing } from '../usage/turnCostCalculator.js';
 import { rememberIssuedClipboardText } from '../textClipboard.js';
 import { activeOwnerScopeKey, ownerScopedUserDataPath } from '../appSessionState.js';
 import { normalizeProviderShareMemberNote, PROVIDER_SHARE_MEMBER_NOTE_MAX_LENGTH } from '../../shared/providerShareMemberNote.js';
 import { providerShareMemberNotes } from './providerShareMemberNotes.js';
+import { exportProviderShareRoster } from './providerShareRosterExport.js';
 import { captureProviderManagementScope } from '../provider-group/managementScope.js';
 import { readProviderManagementShares } from '../provider-group/managementClient.js';
 import type { ProviderShareManagementCommand } from '../../shared/providerManagement.js';
@@ -78,16 +93,16 @@ import {
   providerShareActiveControllers,
   revokeProviderShareControllers,
   setProviderShareAccess,
-} from './dispatch.js';
+} from './dispatch.desktop.js';
 import { getDeviceLinkInvokeContext } from './invoke-context.js';
 import { tapWindowBroadcast } from './broadcast-tap.js';
 import { MAKER_PUSH } from '../maker-ipc/channels.js';
 import { broadcast as broadcastLocal } from './index.js';
-import { fetchIdentityCard, providerShareApi, providerShareLinkFor, providerShareOwnerKey, sha256Hex } from './providerShareApi.js';
+import { providerShareApi, providerShareLinkFor, providerShareOwnerKey } from './providerShareApi.js';
 import { configureProviderShareApprovalWindows } from './providerShareApprovalWindows.js';
 import {
   findReceivedShare,
-  providerShareReceivedRevision,
+  providerShareAccessEpoch,
   getReceivedShares,
   isReceivedSharesReady,
   getReceivedSharesSnapshot,
@@ -135,7 +150,7 @@ import {
   type ProviderShareReshareRecord,
 } from './providerShareReshare.js';
 import { getProviderShareUsageStore, installProviderShareUsageStore, providerUsageLocalDay } from './providerShareUsageStore.js';
-import { readDeviceLinkSettings, readLastKnownDeviceNames } from './settings-store.js';
+import { readDeviceLinkSettings, readLastKnownDeviceNames } from './settings-store.desktop.js';
 import { currentProviderPartyUsageStore, type ProviderPartyUsage } from '../usage/providerPartyUsageStore.js';
 
 const log = createLogger('provider-share');
@@ -320,7 +335,48 @@ const reshareEvents: ProviderShareReshareEvents = {
 };
 
 /** 设备互联连上(本实例持有连接)时启动；断开、登出或失去持有权时停止。 */
+let stopAvailabilityPublisher: (() => void) | undefined;
+let availabilityPublishing = false;
+let availabilityPublishPending = false;
+let availabilityPublisherEpoch = 0;
+let availabilitySnapshot: string | undefined;
+function queueAvailabilityPublish(): void {
+  if (!running) return;
+  availabilityPublishPending = true;
+  if (availabilityPublishing) return;
+  availabilityPublishing = true;
+  void (async () => {
+    try {
+      while (running && availabilityPublishPending) {
+        availabilityPublishPending = false;
+        const epoch = availabilityPublisherEpoch;
+        const shares = getProviderShareHostSnapshot();
+        for (const work of [refreshStandbyGuests, () => publishShareAvailability(shares), flushStandbyUsage,
+          ...shares.map(share => () => importStandbyUsage(share.shareId))]) {
+          if (!running || epoch !== availabilityPublisherEpoch) break;
+          try { await work(); }
+          catch (error) { log.warn('shared standby synchronization unavailable', { error: String(error) }); }
+        }
+      }
+    } finally { availabilityPublishing = false; }
+  })();
+}
 export function startProviderShareRuntime(broadcast: Broadcast, options: { invoke?: ShareInvoke } = {}): void {
+  stopAvailabilityPublisher?.();
+  const stopGroup = onProviderGroupChanged(queueAvailabilityPublish);
+  const stopModels = remoteModelAccess.subscribe(queueAvailabilityPublish);
+  const stopAccess = onRemoteProviderAccessChanged(queueAvailabilityPublish);
+  const stopSettings = onDeviceLinkSettingChanged(key => { if (key === 'remoteControlEnabled') queueAvailabilityPublish(); });
+  const timer = setInterval(queueAvailabilityPublish, 60_000);
+  timer.unref?.();
+  availabilitySnapshot = undefined;
+  availabilityPublisherEpoch += 1;
+  stopAvailabilityPublisher = () => {
+    availabilityPublisherEpoch += 1;
+    availabilityPublishPending = false;
+    clearInterval(timer); stopGroup(); stopModels(); stopAccess(); stopSettings();
+  };
+
   // 启动仲裁可能早于 IPC 注册；必须在 host 的第一轮快照前配置持久归属。
   configureProviderShareApprovalWindows({
     filePath: () => ownerScopedUserDataPath('provider-share-approval-windows.json'),
@@ -374,6 +430,16 @@ export function startProviderShareRuntime(broadcast: Broadcast, options: { invok
       }, member.joinedAt);
     },
     changed() {
+      // Polling also emits unchanged snapshots. Only permission/identity changes
+      // need an immediate full pass; periodic refresh still checks executor health.
+      const snapshot = JSON.stringify(getProviderShareHostSnapshot().map(share => ({
+        shareId: share.shareId, hostDeviceId: share.hostDeviceId, providerId: share.providerId,
+        members: share.members.map(member => [member.memberId, member.joinedAt, member.status]),
+      })));
+      if (snapshot !== availabilitySnapshot) {
+        availabilitySnapshot = snapshot;
+        queueAvailabilityPublish();
+      }
       emit(PROVIDER_SHARE_IPC.OWNED_CHANGED, null);
     },
     requested(request, share, quiet) {
@@ -423,9 +489,11 @@ export function startProviderShareRuntime(broadcast: Broadcast, options: { invok
       emit(DEVICE_LINK_PUSH.REMOTE_PUSH, { deviceId, channel: 'maker:provider:changed', payload: {} });
       notifyControlledModelCatalogChanged();
     },
-    changed(received) {
+    changed(received, changed) {
+      // Local windows re-check stale subscription catalogs on every poll.
       emit(PROVIDER_SHARE_IPC.RECEIVED_CHANGED, received);
-      notifyControlledModelCatalogChanged();
+      // Pushed to every controlling computer; they re-read capabilities and rosters.
+      if (changed) notifyControlledModelCatalogChanged();
     },
     settled(state, preview) {
       emit(PROVIDER_SHARE_IPC.SETTLED, { state, preview });
@@ -442,6 +510,8 @@ export function startProviderShareRuntime(broadcast: Broadcast, options: { invok
 }
 
 export function stopProviderShareRuntime(): void {
+  stopAvailabilityPublisher?.();
+  stopAvailabilityPublisher = undefined;
   invalidateProviderShareGuestPrefsCache();
   running = false;
   directForgetEpoch += 1;
@@ -520,7 +590,9 @@ export function parseProviderShareCommand(raw: unknown): ProviderShareCommand {
       if (!isRemoteAgentLimitsPatch(value.limits)) throwIpcError('INVALID_PARAMS', 'Invalid remote task limits');
       return { action: value.action, limits: { ...value.limits } };
     case 'owned':
-      return { action: 'owned', range: usageRange(value.range) };
+      if (value.includeUsage !== undefined && typeof value.includeUsage !== 'boolean') throwIpcError('INVALID_PARAMS', 'Invalid owned usage scope');
+      return { action: 'owned', range: usageRange(value.range),
+        ...(value.includeUsage !== undefined ? { includeUsage: value.includeUsage } : {}) };
     case 'own-usage':
       return { action: 'own-usage', providerId: text(value.providerId, 'providerId'), range: usageRange(value.range) };
     case 'usage-history':
@@ -574,23 +646,71 @@ export function parseProviderShareCommand(raw: unknown): ProviderShareCommand {
   }
 }
 
-async function estimate(row: Omit<ProviderShareModelUsageView, 'amount'> & { sdkCostUsd: number }): Promise<ProviderShareMoney | null> {
-  try {
-    const pricing = await getGatewayModelPricing();
-    const agent = row.kind === 'claude-code' || row.kind === 'codex' || row.kind === 'pi' ? row.kind : undefined;
-    const price = getModelPriceQuote(pricing, row.providerId, normalizeModelIdForPricing(row.model), agent);
-    const money = computePriceQuoteTurnMoney(row, price, currentLedgerCurrency());
-    if (money) return { amount: money.amount, currency: money.currency };
-  } catch (error) {
-    log.warn('provider share usage estimate failed', { error: String(error) });
-  }
-  return row.sdkCostUsd > 0 ? { amount: row.sdkCostUsd, currency: 'USD' } : null;
+type ProviderShareUsageEstimateRow = Omit<ProviderShareModelUsageView, 'amount'> & { sdkCostUsd: number; day?: string };
+
+/**
+ * 账本按天、按模型只存总量。阶梯价按单轮输入选档，直接拿总量会把许多短请求整体算成长上下文价；
+ * 拿不到逐轮分布时按平均每轮选档，再乘轮数。
+ */
+function perTurnAverageMoney(row: ProviderShareUsageEstimateRow, price: ModelPriceQuote | undefined) {
+  const turns = row.turns > 1 ? row.turns : 1;
+  const money = computePriceQuoteTurnMoney({
+    inputTokens: row.inputTokens / turns,
+    outputTokens: row.outputTokens / turns,
+    cacheReadTokens: row.cacheReadTokens / turns,
+    cacheCreateTokens: row.cacheCreateTokens / turns,
+  }, price, currentLedgerCurrency());
+  return money && { amount: money.amount * turns, currency: money.currency };
 }
 
-async function ownerState(range: ProviderShareUsageRange): Promise<ProviderShareOwnerState> {
-  if (!running) return { ready: false, shares: [] };
+/**
+ * 每次查询复用报价与覆盖快照，避免为最多 5,000 行历史逐行重建参考价目录或重读覆盖文件。
+ * 按天的历史行用那一天生效的参考价目录(与今天的目录同一套取价规则)；按时间段的汇总行用今天的目录。
+ */
+function createUsageEstimator() {
+  let gatewayPricing: ReturnType<typeof getGatewayModelPricing> | undefined;
+  let overrides: ModelPriceOverridesSnapshot | undefined;
+  const referencePricing = new Map<string, ReturnType<typeof getReferenceModelPricing>>();
+  const referenceCatalog = (day: string | undefined) => {
+    const key = day ?? '';
+    let pricing = referencePricing.get(key);
+    if (!pricing) {
+      overrides ??= readModelPriceOverridesSnapshot();
+      pricing = getReferenceModelPricing({ at: day, overrides });
+      referencePricing.set(key, pricing);
+    }
+    return pricing;
+  };
+  return async (row: ProviderShareUsageEstimateRow): Promise<ProviderShareMoney | null> => {
+    const sdkMoney: ProviderShareMoney | null = row.sdkCostUsd > 0 ? { amount: row.sdkCostUsd, currency: 'USD' } : null;
+    // 只有 SDK 金额、没有 token 计数的行无从按单价估算，保留记录的金额而不是算成 0。
+    if (row.inputTokens + row.outputTokens + row.cacheReadTokens + row.cacheCreateTokens <= 0) return sdkMoney;
+    // 与本机记账(resolveTurnCost)一致：普通供应商 API 优先用 SDK 记录的金额，只在缺失时按单价估算；
+    // DeepSeek 的 SDK 金额把缓存命中按普通输入计，按参考价重算。XD 只认 Gateway 报价。
+    if (sdkMoney && row.providerId !== 'xd' && row.providerId !== 'deepseek') return sdkMoney;
+    try {
+      const agent = row.kind === 'claude-code' || row.kind === 'codex' || row.kind === 'pi' ? row.kind : undefined;
+      const model = normalizeModelIdForPricing(row.model);
+      // XD 的实际报价与其他供应商的参考价独立，不能跨来源借价。
+      const pricing = row.providerId === 'xd'
+        ? await (gatewayPricing ??= getGatewayModelPricing())
+        : referenceCatalog(row.day);
+      const price = getModelPriceQuote(pricing, row.providerId, model, agent);
+      const money = perTurnAverageMoney(row, price);
+      if (money) return money;
+    } catch (error) {
+      log.warn('provider share usage estimate failed', { error: String(error) });
+    }
+    return sdkMoney;
+  };
+}
+
+async function ownerState(range: ProviderShareUsageRange, includeUsage = true): Promise<ProviderShareOwnerState> {
+  const scope = includeUsage ? {} : { includeUsage: false as const };
+  if (!running) return { ready: false, ...scope, shares: [] };
+  const estimate = includeUsage ? createUsageEstimator() : null;
   const shares = getProviderShareHostSnapshot();
-  const usage = getProviderShareUsageStore()?.query(new Set(shares.map((share) => share.shareId)), range) ?? [];
+  const usage = includeUsage ? getProviderShareUsageStore()?.query(new Set(shares.map((share) => share.shareId)), range) ?? [] : [];
   const reshares = listProviderShareReshares();
   const notes = providerShareMemberNotes.read();
   const runningTasks = new Map<string, number>();
@@ -602,6 +722,7 @@ async function ownerState(range: ProviderShareUsageRange): Promise<ProviderShare
   }
   return {
     ready: true,
+    ...scope,
     shares: await Promise.all(shares.map(async (share) => ({
       shareId: share.shareId,
       providerId: share.providerId,
@@ -635,7 +756,7 @@ async function ownerState(range: ProviderShareUsageRange): Promise<ProviderShare
             outputTokens: model.outputTokens,
             cacheReadTokens: model.cacheReadTokens,
             cacheCreateTokens: model.cacheCreateTokens,
-            amount: await estimate(model),
+            amount: estimate ? await estimate(model) : null,
           }))),
         };
       })),
@@ -647,6 +768,7 @@ async function ownerState(range: ProviderShareUsageRange): Promise<ProviderShare
 
 /** 这个供应商按使用方的用量：本机与同账号的其他电脑(provider-groups.md §7)。只读本机账本，不经分享服务。 */
 async function ownUsage(providerId: string, range: ProviderShareUsageRange): Promise<ProviderOwnUsageView> {
+  const estimate = createUsageEstimator();
   const { local, devices, relays } = currentProviderPartyUsageStore().query(providerId, range);
   const lastKnownNames = readLastKnownDeviceNames();
   const view = async (party: ProviderPartyUsage): Promise<ProviderPartyUsageView> => ({
@@ -761,6 +883,7 @@ export function trimProviderUsageHistory(history: ProviderUsageHistoryView): Pro
  * (只含这个供应商的分享里现在的成员)。时间段、人与组内电脑由界面筛选。
  */
 async function usageHistory(providerId: string): Promise<ProviderUsageHistoryView> {
+  const estimate = createUsageEstimator();
   const own = currentProviderPartyUsageStore().history(providerId);
   const shares = running ? getProviderShareHostSnapshot().filter((share) => share.providerId === providerId) : [];
   const memberKeys = new Set(shares.flatMap((share) => share.members.map((member) => JSON.stringify([share.shareId, member.memberId]))));
@@ -836,18 +959,21 @@ async function createLink(
   assertCurrent();
   const provider = providers.find((item) => item.id === providerId);
   if (!provider || !provider.connected || provider.agents.length === 0) throwIpcError('PRECONDITION_FAILED', 'Provider is not available');
-  const hostDeviceId = getDeviceId();
-  if (!hostDeviceId) throwIpcError('DEVICE_LINK_NOT_CONNECTED', 'Device is not registered');
-  const identityCard = await fetchIdentityCard('share-link', sha256Hex(`${hostDeviceId}:${providerId}`));
+  if (!getDeviceId()) throwIpcError('DEVICE_LINK_NOT_CONNECTED', 'Device is not registered');
   assertCurrent();
-  const created = await providerShareApi.createLink({
-    providerId,
-    // 名称可能自动带上登录身份(如「OpenAI · 邮箱」)，分享出去前去掉。
-    providerLabel: scrubProviderShareLabel(provider.name, [provider.subscriptionAccount?.identity, provider.openAiAccount?.identity], provider.id),
-    // 电脑名不给受邀者(provider-sharing.md §6)：字段必填(旧版受邀者按必填解析)，填固定占位。
-    deviceName: PROVIDER_SHARE_NEUTRAL_DEVICE_NAME,
-    identityCard,
-  });
+  let created: Awaited<ReturnType<typeof providerShareApi.createLink>>;
+  try {
+    created = await providerShareApi.createLink({
+      providerId,
+      // 名称可能自动带上登录身份(如「OpenAI · 邮箱」)，分享出去前去掉。
+      providerLabel: scrubProviderShareLabel(provider.name, [provider.subscriptionAccount?.identity, provider.openAiAccount?.identity], provider.id),
+      // 电脑名不给受邀者(provider-sharing.md §6)：字段必填(旧版受邀者按必填解析)，填固定占位。
+      deviceName: PROVIDER_SHARE_NEUTRAL_DEVICE_NAME,
+    }, assertCurrent);
+  } catch (error) {
+    assertCurrent();
+    throw error;
+  }
   assertCurrent();
   if (requireLinkId && !created.linkId) {
     throwIpcError('UNSUPPORTED_CAPABILITY', 'Remote share links require an update to the provider share server');
@@ -907,6 +1033,9 @@ async function execute(command: ProviderShareCommand, assertCurrent: () => void 
       const budgetModelIds = recommendationModelIds.filter(id => id === unifiedModelKeyId(id)
         || !recommendationModelIds.includes(unifiedModelKeyId(id)));
       if (command.action === 'set-model-access') {
+        // A connection merged into an account pool reads the pool's provider-wide range; only member grants stay here.
+        if (command.memberId === undefined && provider.subscriptionPoolAlias)
+          throwIpcError('PRECONDITION_FAILED', 'This provider follows its account pool; change the range there');
         if (command.memberBudget?.rules.length && !budgetAvailable) throwIpcError('PRECONDITION_FAILED', 'Member model limits are not available for this provider group');
         if (command.memberBudget) {
           const previous = remoteModelAccess.read(command.providerId, command.memberId).memberBudget;
@@ -917,10 +1046,10 @@ async function execute(command: ProviderShareCommand, assertCurrent: () => void 
           if (recommended && !recommendationModelIds.includes(recommended) && recommended !== previous?.recommendedModel)
             throwIpcError('INVALID_PARAMS', 'The recommended model is unavailable');
         }
-        await remoteModelAccess.set(command.providerId, command.models, command.memberId, assertScope, command.memberBudget);
-        assertScope();
+        await remoteModelAccess.set(command.providerId, command.models, command.memberId, assertScope, command.memberBudget, assertOwner);
+        assertOwner();
         await revalidateRemoteModelAccess();
-        assertScope();
+        assertOwner();
         emit(PROVIDER_SHARE_IPC.OWNED_CHANGED, null);
         emit(MAKER_PUSH.PROVIDER_CHANGED, {});
         tapWindowBroadcast(MAKER_PUSH.PROVIDER_CHANGED, {});
@@ -945,18 +1074,17 @@ async function execute(command: ProviderShareCommand, assertCurrent: () => void 
       return result;
     }
     case 'quota-account':
-      return readProviderShareQuotaAccount(command.providerId);
+      return readProviderShareQuotaAccountResult(command.providerId);
     case 'insights': {
       const assertOwner = captureProviderManagementScope();
       const share = findReceivedShare(command.shareId);
-      const revision = providerShareReceivedRevision();
+      const revision = providerShareAccessEpoch(command.shareId);
       if (!share || share.status !== 'active') throwIpcError('PERMISSION_DENIED', 'Provider share is not available');
-      if (!share.hostOnline) throwIpcError('DEVICE_LINK_DEVICE_OFFLINE', 'Provider share host is offline');
       if (!shareInvoke) throwIpcError('DEVICE_LINK_NOT_CONNECTED', 'Provider share connection is not ready');
       const assertShare = () => {
         assertOwner();
         const latest = findReceivedShare(command.shareId);
-        if (providerShareReceivedRevision() !== revision || !latest || latest.memberId !== share.memberId || latest.status !== 'active' || !latest.hostOnline) {
+        if (providerShareAccessEpoch(command.shareId) !== revision || !latest || latest.memberId !== share.memberId || latest.status !== 'active') {
           throwIpcError('PERMISSION_DENIED', 'Provider share changed');
         }
       };
@@ -992,8 +1120,8 @@ async function execute(command: ProviderShareCommand, assertCurrent: () => void 
           : [],
       };
     case 'owned':
-      if (running) markProviderShareHostActive(60_000);
-      return ownerState(command.range);
+      if (running && command.includeUsage !== false) markProviderShareHostActive(60_000);
+      return ownerState(command.range, command.includeUsage);
     case 'own-usage':
       return ownUsage(command.providerId, command.range);
     case 'usage-history':
@@ -1073,12 +1201,22 @@ async function execute(command: ProviderShareCommand, assertCurrent: () => void 
   }
 }
 
+/** Native quota panel uses the same authenticated read as the sharing details. */
+export async function readReceivedProviderShareQuota(shareId: string): Promise<ProviderShareInsights> {
+  const assertCurrent = captureProviderManagementScope();
+  const result = await execute({ action: 'insights', shareId, includeUsage: false }, assertCurrent);
+  assertCurrent();
+  return result as ProviderShareInsights;
+}
+
 /**
  * 同账号管理只执行分享者操作；申请和成员必须属于这台电脑的分享。经管理生成的链接由发起的那台电脑
  * 弹审批窗，本机在窗口期内静默；返回的 owned 只含这台电脑的分享，不带本机自己的弹窗安排。
  */
-export async function executeProviderShareManagementCommand(command: ProviderShareManagementCommand): Promise<unknown> {
-  const assertCurrent = captureProviderManagementScope();
+export async function executeProviderShareManagementCommand(command: ProviderShareManagementCommand, assertCaller: () => void = () => undefined): Promise<unknown> {
+  const assertOwner = captureProviderManagementScope();
+  const assertCurrent = () => { assertOwner(); assertCaller(); };
+  assertCurrent();
   if (command.action === 'approve' || command.action === 'reject' || command.action === 'set-member') {
     requireRunning();
     await refreshProviderShareHost('management');
@@ -1097,17 +1235,51 @@ export async function executeProviderShareManagementCommand(command: ProviderSha
     rememberIssuedClipboardText(created.link, created.expiresAt);
     return created;
   }
-  const result = await execute(command, assertCurrent);
+  // A committed server mutation must finish owner-local revocation/cleanup even
+  // if the caller stops while REST is in flight. Its result is still withheld.
+  const committedCleanup = command.action === 'approve' || command.action === 'reject' || command.action === 'set-member';
+  const result = await execute(command, committedCleanup ? assertOwner : assertCurrent);
   assertCurrent();
   if (command.action === 'owned') {
-    const { ready, shares } = result as ProviderShareOwnerState;
-    return { ready, shares } satisfies ProviderShareOwnerState;
+    const { ready, shares, includeUsage } = result as ProviderShareOwnerState;
+    return { ready, shares, ...(includeUsage === false ? { includeUsage } : {}) } satisfies ProviderShareOwnerState;
   }
   return result;
 }
 
+/** 收藏身份与 Desktop 本机收藏同一套键。编不进去就不附带，手机不会另找成员身份。 */
+function receivedFavoriteSource(share: ProviderShareReceived): ProviderShareFavoriteSource | undefined {
+  const favoriteSource: ProviderShareFavoriteSource = {
+    shareId: share.shareId,
+    memberId: share.memberId,
+    providerId: share.providerId,
+    owner: { region: share.owner.region },
+  };
+  try {
+    providerShareFavoriteSource(favoriteSource);
+    return favoriteSource;
+  } catch {
+    return undefined;
+  }
+}
+
 const CATALOG_READ_TIMEOUT_MS = 10_000;
 const LINK_TTL_SAFETY_MS = 5_000;
+
+/** A definitive provider/share refusal is an empty catalog with no trust budget. */
+const DENIED_PROVIDER_CATALOG = { providers: [], providerContinuity: { stale: true, remainingMs: 0 } };
+
+function isProviderCatalogDenial(error: unknown): boolean {
+  const row = error && typeof error === 'object'
+    ? error as { code?: unknown; message?: unknown } : {};
+  const code = typeof row.code === 'string' && row.code !== 'IPC_ERROR' ? row.code
+    : typeof row.message === 'string' && row.message.startsWith('[PROVIDER_SHARE_CROSS_REGION_DISABLED]')
+      ? 'PROVIDER_SHARE_CROSS_REGION_DISABLED'
+      : undefined;
+  // A region feature flag is not a per-share permission refusal.
+  if (code === 'PROVIDER_SHARE_CROSS_REGION_DISABLED') return false;
+  return isProviderAccessDeniedError(error);
+}
 
 /**
  * 手机(同账号)经被控电脑读取这台电脑收到的分享与各自的模型目录。目录由分享者电脑过滤为
@@ -1129,6 +1301,7 @@ async function receivedCatalogs(args: unknown[]): Promise<{ ready: boolean; shar
     ready: isReceivedSharesReady(),
     shares: await Promise.all(shares.map(async (share): Promise<ProviderShareReceivedCatalog> => {
       const agentDeviceId = `share:${share.shareId}`;
+      const favoriteSource = receivedFavoriteSource(share);
       let catalog: unknown = null;
       if (includeCatalog && invoke && share.status === 'active') {
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1138,8 +1311,9 @@ async function receivedCatalogs(args: unknown[]): Promise<{ ready: boolean; shar
             new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), CATALOG_READ_TIMEOUT_MS); }),
           ]);
           if (result?.ok) catalog = scrubSharedProviderCatalog(result.result);
-        } catch {
-          catalog = null;
+          else if (result && isProviderCatalogDenial(result.error)) catalog = DENIED_PROVIDER_CATALOG;
+        } catch (error) {
+          catalog = isProviderCatalogDenial(error) ? DENIED_PROVIDER_CATALOG : null;
         } finally {
           if (timer) clearTimeout(timer);
         }
@@ -1154,6 +1328,7 @@ async function receivedCatalogs(args: unknown[]): Promise<{ ready: boolean; shar
         owner: { displayName: share.owner.displayName, avatarUrl: share.owner.avatarUrl },
         status: share.status,
         hostOnline: share.hostOnline,
+        ...(favoriteSource ? { favoriteSource } : {}),
         catalog,
       };
     })),
@@ -1161,6 +1336,7 @@ async function receivedCatalogs(args: unknown[]): Promise<{ ready: boolean; shar
 }
 
 export function registerProviderShareIpc(): void {
+  ipcMain.handle(PROVIDER_SHARE_IPC.EXPORT_ROSTER, exportProviderShareRoster);
   // 受邀者对每个分享的本机偏好(「信任 {分享者}」)：按当前账号存放，读写时解析。
   configureProviderShareGuestPrefs({ resolvePath: () => ownerScopedUserDataPath('provider-share-guest-prefs.json') });
   const insights = createProviderShareInsightsReader({

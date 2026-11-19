@@ -66,11 +66,11 @@ export interface HistoryWorkdir {
 }
 
 export interface HistoryCompanion {
+  /** Task-list membership only; never the execution directory. */
+  taskProjectDir?: string;
   id: string;
   role: string;
   channel?: string;
-  /** Routine lanes (`role = 'routine'`): the standing rule this Session runs. Absent on older hosts. */
-  routineId?: string;
 }
 
 export interface HistorySession {
@@ -95,6 +95,7 @@ export interface HistorySession {
   createdAt: number; // unix ms
   updatedAt: number;
   userSendAt: number | null;
+  hiddenAt?: number | null;
   messageCount: number;
   lastActivityAt?: number;
   companion?: HistoryCompanion | null;
@@ -102,6 +103,8 @@ export interface HistorySession {
 
 export interface HistoryMessage {
   id: string;
+  /** Stable UI/native history anchor; older hosts may omit it. */
+  clientId?: string;
   sessionId: string;
   sessionWorkingDir: string | null;
   sessionAgentKind: string;
@@ -244,6 +247,20 @@ export interface SearchChatHistoryResult {
 // ── Deps interface ─────────────────────────────────────────────────────────
 
 export interface XdtHelperHistoryDeps {
+  readSharedTaskProgress?: (
+    args: { task_link: string; before?: string },
+    caller: import('../types.js').LiziMcpSessionContext | undefined,
+  ) => Promise<ControlResult<{
+    title: string;
+    inTurn: boolean;
+    observedAt: string;
+    events: { role: string; text?: string; createdAt?: string; truncated?: boolean }[];
+    nextBefore: string | null;
+  }, string>>;
+  readSessionAttachment?: (args: import('./read_session_attachment.js').ReadSessionAttachmentArgs,
+    context?: import('../types.js').LiziMcpSessionContext) => Promise<ControlResult<Record<string, unknown>, string>>;
+  listTeammates?: (args: { teammateId?: string; limit: number; cursor: HistoryCursor | null },
+    callerSessionId?: string) => Promise<ControlResult<{ page: HistoryPage<Record<string, unknown>> }>>;
   /** Host-built task link; accepts local ids or deviceId::sessionId. No lookup or permission grant. */
   sessionUrl?: (sessionId: string) => string;
   remote?: import('./_history_devices.js').HistoryRemoteDeps;
@@ -260,6 +277,19 @@ export interface XdtHelperHistoryDeps {
   searchChatHistory: (
     args: SearchChatHistoryArgs,
   ) => Promise<ControlResult<{ result: SearchChatHistoryResult }>>;
+  /** 主力电脑在别处的伙伴的云端房间；调用方不能看时返回 null。 */
+  searchCompanionRooms?: (args: {
+    query: string;
+    teammateId?: string;
+    callerSessionId: string;
+    roles: Array<'user' | 'assistant'>;
+    fromMs: number | null;
+    toMs: number | null;
+  }) => Promise<{
+    hits: Array<{ teammateId: string; teammateName: string; messageId: string; role: 'user' | 'assistant'; text: string; createdAt: number }>;
+    failed: Array<{ teammateId: string; teammateName: string; code: string }>;
+    incomplete: boolean;
+  } | null>;
   /** get_task_digest:一件任务的短摘要(本机 id 或 deviceId::sessionId)。不注入则不注册该工具。 */
   taskDigest?: (args: {
     sessionId: string;

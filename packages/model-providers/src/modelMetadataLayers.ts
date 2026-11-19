@@ -472,6 +472,11 @@ export function applyModelMetadata(
 }
 
 export interface DiscoveredModel {
+  /** Imported gateway IDs are opaque, including when source labels are later unavailable. */
+  opaqueModelId?: true;
+  /** Main-issued receipt for a successful response, including source-field removal. */
+  discoverySnapshotId?: string;
+  discoveredSource?: import("./modelSource.js").DiscoveredModelSource;
   id: string;
   name: string;
   /** Account entitlement, never inherited as public model metadata. */
@@ -498,10 +503,16 @@ export function mergeDiscoveredRuntimeModels(
     const accountCapabilities = model.supportsUltrafastMode !== undefined ||
       (index >= 0 && models[index].supportsUltrafastMode !== undefined)
       ? { supportsUltrafastMode: model.supportsUltrafastMode === true } : {};
-    const discoveredMetadata = mergeModelMetadata(
-      index >= 0 ? models[index].discoveredMetadata : undefined,
-      pickModelMetadata(model.discoveredMetadata ?? model),
-    );
+    const previousMetadata = index >= 0 ? models[index].discoveredMetadata : undefined;
+    const incomingMetadata = pickModelMetadata(model.discoveredMetadata ?? model);
+    const discoveredMetadata = mergeModelMetadata(previousMetadata, incomingMetadata);
+    // Older parsers inferred [] from incomplete supported_parameters. There is no
+    // provenance to distinguish that from a real denial in the saved snapshot.
+    // Require a refreshed declaration to retain an empty discovered effort list;
+    // user overrides live outside this layer and are never removed here.
+    if (previousMetadata?.efforts?.length === 0 && incomingMetadata.efforts === undefined) {
+      delete discoveredMetadata.efforts;
+    }
     // Sparse refreshes can supply either half of this pair. Validate after merging
     // with the last snapshot, without shrinking its working window to a bad maximum.
     if (discoveredMetadata.contextWindow !== undefined &&
@@ -514,6 +525,9 @@ export function mergeDiscoveredRuntimeModels(
         id: model.id,
         name: model.name,
         ...accountCapabilities,
+        discoveredSource: model.discoveredSource,
+        ...(model.opaqueModelId ? { opaqueModelId: true as const } : {}),
+        ...(model.discoverySnapshotId ? { discoverySnapshotId: model.discoverySnapshotId } : {}),
         discoveredMetadata,
         ...(model.discoveredCost ? { discoveredCost: model.discoveredCost } : {}),
         ...(hideNew ? { defaultEnabled: false } : {}),
@@ -522,6 +536,9 @@ export function mergeDiscoveredRuntimeModels(
       models[index] = {
         ...models[index],
         ...accountCapabilities,
+        discoveredSource: model.discoveredSource,
+        ...((model.opaqueModelId || models[index].opaqueModelId) ? { opaqueModelId: true as const } : {}),
+        ...(model.discoverySnapshotId ? { discoverySnapshotId: model.discoverySnapshotId } : {}),
         ...(!models[index].discoveredMetadata ? { nameExplicit: true } : {}),
         discoveredMetadata,
         ...(model.discoveredCost ? { discoveredCost: model.discoveredCost } : {}),

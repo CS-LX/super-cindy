@@ -44,6 +44,13 @@ export interface ThemeColors {
   surfaceTranslucentSidebar: string;
   /** Chat 顶栏玻璃底色(M3:只给会话页顶部 chrome,不污染侧栏 / sheet) */
   chatHeaderSurface: string;
+  /**
+   * 边缘磨砂(首页 / 任务顶栏、输入框底部)在模糊之上、同一遮罩内的压暗层。深色系统材质比
+   * `surface` 亮,单靠模糊会把空白页面提亮成一条可见的带;压暗后空白处仍是 `surface`,只有背后
+   * 有内容时才看得出磨砂。浅色材质本就贴近页面,不压暗。Layered 用于顶栏三层叠加的每一层。
+   */
+  edgeBlurShade: string;
+  edgeBlurShadeLayered: string;
   /** Chat 顶栏底部分割线(M3:dark 为极弱白线) */
   chatHeaderDivider: string;
   /** 浮层卡 sheet surface 底色(R1 audit 模式3,solid 玻璃感由 backdrop blur 承担,surface 不叠 blur 规避 Android 滚动热路径) */
@@ -114,6 +121,8 @@ export interface ThemeColors {
   borderStrong: string;
   /** 主标题 / 主正文 */
   textPrimary: string;
+  /** 群聊正文点名专用；对齐 Desktop CINDY msg-link，不用于普通链接或状态。 */
+  groupMentionText: string;
   /** 次要文字 / 图标 */
   textSecondary: string;
   /** 三级文字 / metadata(时间、计数等真实信息) */
@@ -141,6 +150,8 @@ export interface ThemeColors {
   warningFg: string;
   /** 额度黄（剩余不超过 30%，@cindy/maker-shared/quota-level）；仅额度使用，双模式同值。 */
   quotaBarWarn: string;
+  /** Normal liquid in the widget-style quota tubes, shared with WidgetPalette.plenty. */
+  quotaWidgetPlenty: string;
   /** 额度红（剩余不超过 10%）#EF4444，与 Desktop --quota-bar-crit、Mac 面板、iPhone 组件同值。 */
   quotaBarCrit: string;
   /** 会话状态点 — 等待用户回复/选择(TapTap 蓝,对齐桌面 --card-status-awaiting 与灵动岛 needs-interaction) */
@@ -434,6 +445,8 @@ export const lightColors: ThemeColors = {
   surfaceTranslucent: 'rgba(249, 249, 246, 0.78)',
   surfaceTranslucentSidebar: 'rgba(255, 255, 252, 0.90)',
   chatHeaderSurface: 'rgba(249, 249, 246, 0.90)',
+  edgeBlurShade: 'transparent',
+  edgeBlurShadeLayered: 'transparent',
   chatHeaderDivider: '#CCCCC8',
   surfaceGlassPanel: '#FFFFFC',
   surfaceListRow: '#FFFFFC',
@@ -464,6 +477,7 @@ export const lightColors: ThemeColors = {
   borderTranslucent: 'rgba(204, 204, 200, 0.62)',
   borderStrong: '#858581',
   textPrimary: '#0F0F0F',
+  groupMentionText: '#1D4ED8',
   textSecondary: '#4D4D4A',
   textTertiary: '#686864',
   textPlaceholder: '#858581',
@@ -474,6 +488,7 @@ export const lightColors: ThemeColors = {
   statusAccent: '#EA6B17',
   warningFg: '#F3A115',
   quotaBarWarn: '#F3A115',
+  quotaWidgetPlenty: '#14B8A6',
   quotaBarCrit: '#EF4444',
   statusAwaiting: '#19D2C1',
   statusError: '#D91F37',
@@ -530,6 +545,9 @@ export const darkColors: ThemeColors = {
   surfaceTranslucent: 'rgba(18, 18, 18, 0.78)',
   surfaceTranslucentSidebar: 'rgba(10, 10, 10, 0.85)',
   chatHeaderSurface: 'rgba(18, 18, 18, 0.80)',
+  // iOS 27 实测:#121212 上单层(55)提亮到约 21.9、顶栏三层(各 32)约 21.4;压暗后回到 18。
+  edgeBlurShade: 'rgba(0, 0, 0, 0.18)',
+  edgeBlurShadeLayered: 'rgba(0, 0, 0, 0.08)',
   chatHeaderDivider: 'rgba(255, 255, 255, 0.08)',
   surfaceGlassPanel: '#242424',
   surfaceListRow: '#1E1E1E',
@@ -561,6 +579,7 @@ export const darkColors: ThemeColors = {
   borderTranslucent: 'rgba(56, 56, 56, 0.62)',
   borderStrong: '#8A8A8A',
   textPrimary: '#EDEDED',
+  groupMentionText: '#93C5FD',
   textSecondary: '#BDBDBD',
   textTertiary: '#999999',
   textPlaceholder: '#757575',
@@ -571,6 +590,7 @@ export const darkColors: ThemeColors = {
   statusAccent: '#EA6B17',
   warningFg: '#F3A115',
   quotaBarWarn: '#F3A115',
+  quotaWidgetPlenty: '#2DD4BF',
   quotaBarCrit: '#EF4444',
   statusAwaiting: '#19D2C1',
   statusError: '#D91F37',
@@ -744,10 +764,12 @@ export const iconSize = {
 
 /**
  * lucide 图标 strokeWidth 阶梯。收敛前仓库里散落 14 种碎片值(1.5~3),
- * 视觉上无法区分意图;收敛为四档:thin(大圆形图标的轻盈描边)、
+ * 通用控件收敛为四档;project 保留项目身份图标的独立描边。thin(大圆形图标的轻盈描边)、
  * regular(默认,lucide 出厂值)、medium(选中态 Check 等强调)、bold(微图标增粗保清晰)。
  */
 export const iconStroke = {
+  /** Project glyphs retain the approved light stroke at small title sizes. */
+  project: 1.6,
   thin: 1.75,
   regular: 2,
   medium: 2.2,

@@ -109,6 +109,7 @@ const SESSION_SOURCES = [
   'wechat',
   'dingtalk',
   'wecom',
+  'imessage',
   'scheduler',
   'learn',
   'review',
@@ -178,6 +179,8 @@ export const sessions = sqliteTable(
     planModeEnabled: integer('plan_mode_enabled', { mode: 'boolean' }).notNull().default(false),
     clearedAt: integer('cleared_at'), // unix ms
     pinnedAt: integer('pinned_at'), // unix ms
+    snoozedUntil: integer('snoozed_until'), // unix ms; presentation only
+    snoozedAt: integer('snoozed_at'), // host time of the explicit snooze
     /**
      * 后台隐藏时刻（unix ms）。非 NULL = 插件以 `agent.hiddenTasks` 声明创建或切换为
      * 隐藏的后台任务：不进入任务列表、搜索、未结束提示与新任务通知；用户仍可在插件
@@ -965,6 +968,16 @@ export const messages = sqliteTable(
   }),
 );
 
+export const mcpAppViewStates = sqliteTable('mcp_app_view_states', {
+  messageId: text('message_id').primaryKey().references(() => messages.id, { onDelete: 'cascade' }),
+  sessionId: text('session_id').notNull().references(() => sessions.id, { onDelete: 'cascade' }),
+  serverId: text('server_id').notNull(),
+  serverRevision: text('server_revision').notNull(),
+  pluginInstance: text('plugin_instance'),
+  stateJson: text('state_json').notNull(),
+  byteLength: integer('byte_length').notNull(),
+}, t => ({ bySession: index('idx_mcp_app_view_states_session').on(t.sessionId) }));
+
 /**
  * messages_fts 的稳定整数行号映射。
  *
@@ -1107,6 +1120,10 @@ export const sessionPrRefs = sqliteTable(
     sessionId: text('session_id')
       .notNull()
       .references(() => sessions.id, { onDelete: 'cascade' }),
+    provider: text('provider', { enum: ['github', 'gitlab'] })
+      .notNull()
+      .default('github'),
+    host: text('host').notNull().default('github.com'),
     owner: text('owner').notNull(),
     repo: text('repo').notNull(),
     prNumber: integer('pr_number').notNull(),
@@ -1121,7 +1138,14 @@ export const sessionPrRefs = sqliteTable(
     removedAt: integer('removed_at'),
   },
   (t) => ({
-    uniqRef: uniqueIndex('uniq_session_pr_refs').on(t.sessionId, t.owner, t.repo, t.prNumber),
+    uniqRef: uniqueIndex('uniq_session_pr_refs').on(
+      t.sessionId,
+      t.provider,
+      t.host,
+      t.owner,
+      t.repo,
+      t.prNumber,
+    ),
     idxSessionLastSeen: index('idx_session_pr_refs_session_last_seen').on(
       t.sessionId,
       t.lastSeenAt,
@@ -1460,6 +1484,8 @@ export const schedules = sqliteTable(
       .notNull()
       .default('agent'),
     scriptConfig: text('script_config'),
+    /** JSON ScheduleWebhookTrigger；NULL = 未开启。签名密钥不进数据库。 */
+    webhookTrigger: text('webhook_trigger'),
     source: text('source').default('user'),
     projectConfigId: text('project_config_id'),
     /**
@@ -1495,6 +1521,7 @@ export const schedules = sqliteTable(
     modelAgentKind: text('model_agent_kind', { enum: ['claude-code', 'codex', 'pi'] }),
     /** NULL inherits a bound task; empty string explicitly selects the automation host. */
     modelAgentDeviceId: text('model_agent_device_id'),
+    inheritedProjectDir: text('inherited_project_dir'),
     model: text('model'),
     /**
      * 显式选定的供应商(来源)id。NULL = 回落该 agent 原生默认来源(no-break,
@@ -1541,6 +1568,7 @@ export const schedules = sqliteTable(
      * exit 0 放行 / exit 2 跳过本轮(run 记 'skipped') / 其它、超时阻止本轮并记 failed。
      * 内存对象里与 timeout 合成 `Schedule.preRunHook` 嵌套对象(同 notify 的拆列模式)。
      */
+    prTrigger: text('pr_trigger'),
     preRunHookCommand: text('pre_run_hook_command'),
     /** 前置检查脚本超时毫秒。NULL = 不限时。仅 command 非空时有意义。 */
     preRunHookTimeoutMs: integer('pre_run_hook_timeout_ms'),
@@ -1725,6 +1753,8 @@ export const scheduleRuns = sqliteTable(
     resultText: text('result_text'),
     /** 前置检查一次执行的结构化 JSON 结果；NULL 表示本轮未配置/未执行检查。 */
     preRunHookResult: text('pre_run_hook_result'),
+    /** 本轮触发来源；NULL = 定时或手动。 */
+    triggerSource: text('trigger_source'),
     readAt: integer('read_at'),
     /**
      * In-flight 心跳时间戳（毫秒）——跨实例的"仍有活实例在跑"租约信号。
@@ -1900,6 +1930,35 @@ export const dailySpend = sqliteTable(
   }),
 );
 
+/** Auxiliary requests are independent of task turns and retain their own attribution. */
+export const auxiliaryUsageReceipts = sqliteTable('auxiliary_usage_receipts', {
+  receiptId: text('receipt_id').primaryKey(),
+  providerId: text('provider_id').notNull(),
+  model: text('model').notNull(),
+  source: text('source').notNull(),
+  sessionId: text('session_id'),
+  transport: text('transport').notNull(),
+  day: text('day').notNull(),
+  recordedAt: integer('recorded_at').notNull(),
+  inputTokens: integer('input_tokens'),
+  outputTokens: integer('output_tokens'),
+  cacheReadTokens: integer('cache_read_tokens'),
+  cacheCreateTokens: integer('cache_create_tokens'),
+}, t => ({ dayIndex: index('auxiliary_usage_receipts_day_idx').on(t.day) }));
+
+/** Immutable request receipts; insertion and aggregate increments share one transaction. */
+export const piUsageReceipts = sqliteTable('pi_usage_receipts', {
+  sessionId: text('session_id').notNull(),
+  settlementId: text('settlement_id').notNull(),
+  receiptId: text('receipt_id').notNull(),
+  recordedAt: integer('recorded_at').notNull(),
+  priced: integer('priced', { mode: 'boolean' }).notNull().default(false),
+  pricingPayload: text('pricing_payload'),
+}, t => ({
+  pk: primaryKey({ columns: [t.sessionId, t.settlementId, t.receiptId] }),
+  pending: index('pi_usage_receipts_pending_idx').on(t.priced),
+}));
+
 /**
  * 每日按模型用量聚合表 (daily_model_usage) — 支撑首页用量仪表盘的"按模型拆分"。
  *
@@ -1908,7 +1967,7 @@ export const dailySpend = sqliteTable(
  *     costUsd 为 SDK 实报美元。
  *   - codex: done.data.usage 的 per-turn token 数 (SDK 不报 cost, costUsd 恒 0,
  *     美元在读取时用 modelPricing 价格表估算 — 价格会变, 不在写入时冻结)。
- *   - pi: done.data.usage 的 per-turn token/cache 数；订阅路由读时估值，API 路由写时记费。
+ *   - pi: 每个请求的 usage 回执增量入账，终态重放补漏；旧事件仍按 turn 入账。
  *
  * 与 daily_spend 的关系: daily_spend 仍是日总额 canonical 来源 (热力图 / streak 用它);
  * 本表只做按模型的拆分展示, 两边求和因舍入可能有微小差异 — 设计取舍。
@@ -2193,7 +2252,7 @@ export const rightSidebarTabs = sqliteTable(
  * 覆盖写(队列空则删行),重启后打开会话时懒恢复为「暂停中的队列」。
  *
  * 设计要点:
- *   - payload 是 `AgentInputQueuedMessage[]` 的 JSON.stringify;读侧逐条做形状
+ *   - payload 是排队消息与可选 Main 停止元数据组成的 JSON 数组；读侧逐条做形状
  *     校验,坏行整体丢弃(尽力而为的恢复信号,不做跨版本迁移)。
  *   - 单行覆盖写而非逐条行:队列通常只有个位数条目,整体快照避免"逐条 CRUD 与
  *     内存态漂移"一族一致性问题;体量上限与超限降级在写入模块做。
@@ -2203,7 +2262,7 @@ export const agentInputQueueSnapshots = sqliteTable('agent_input_queue_snapshots
   sessionId: text('session_id')
     .primaryKey()
     .references((): AnySQLiteColumn => sessions.id, { onDelete: 'cascade' }),
-  /** AgentInputQueuedMessage[] 的 JSON 字符串。 */
+  /** 队列消息与可选 Main 停止元数据的 JSON 数组；元数据不是消息。 */
   payload: text('payload').notNull(),
   updatedAt: integer('updated_at').notNull(),
 });
@@ -2472,7 +2531,8 @@ export const sessionTaskTags = sqliteTable(
 export const pluginTaskRequests = sqliteTable('plugin_task_requests', {
   id: text('id').primaryKey(),
   pluginId: text('plugin_id').notNull(),
-  operation: text('operation', { enum: ['create', 'send', 'target'] }).notNull(),
+  // imPermission: a looser IM-project permission the user allowed in Cindy (TypeScript-only enum).
+  operation: text('operation', { enum: ['create', 'send', 'target', 'imPermission'] }).notNull(),
   targetId: text('target_id').notNull(),
   requestKey: text('request_key').notNull(),
   fingerprint: text('fingerprint').notNull(),

@@ -15,17 +15,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ProviderShareReceived } from '@cindy/device-link';
 import type { ProviderView } from '@cindy/model-providers';
+import type { SubscriptionPoolView } from '../../shared/subscriptionAccounts';
 
 const {
   wizardSpy,
+  wizardPropsSpy,
   providersState,
   codexAuthState,
   codexAuthActions,
   toastError,
   setModelVisibilitiesSpy,
   customDialogSpy,
+  providerRefetch,
 } = vi.hoisted(() => ({
   wizardSpy: vi.fn(),
+  wizardPropsSpy: vi.fn(),
   providersState: { providers: [] as unknown[], order: [] as string[] },
   codexAuthState: {
     state: { kind: 'unauthenticated' } as Record<string, unknown>,
@@ -41,6 +45,7 @@ const {
   toastError: vi.fn(),
   setModelVisibilitiesSpy: vi.fn(() => true),
   customDialogSpy: vi.fn(),
+  providerRefetch: vi.fn(async (): Promise<void> => undefined),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -53,7 +58,7 @@ vi.mock('@/hooks/useProviders', () => ({
     providerOrder: providersState.order,
     ownerGeneration: 1,
     loading: false,
-    refetch: vi.fn(),
+    refetch: providerRefetch,
   }),
 }));
 
@@ -117,15 +122,17 @@ vi.mock('@/state/modelVisibilityPrefs', () => ({
 }));
 
 vi.mock('@/components/settings/ProviderConnectionDialog', () => ({
-  ProviderConnectionDialog: (props: unknown) => {
+  ProviderConnectionDialog: (props: { initial?: { name?: string } }) => {
     customDialogSpy(props);
-    return React.createElement('div', { 'data-testid': 'custom-provider-dialog-stub' });
+    return React.createElement('div', { 'data-testid': 'custom-provider-dialog-stub' },
+      React.createElement('input', { 'aria-label': props.initial ? 'edit connection draft' : 'custom connection draft', defaultValue: props.initial?.name }));
   },
 }));
 
 vi.mock('@/components/settings/AddProviderWizard', () => ({
   AddProviderWizard: (props: { entry?: unknown }) => {
     wizardSpy(props.entry);
+    wizardPropsSpy(props);
     return React.createElement('div', { 'data-testid': 'wizard-stub' });
   },
 }));
@@ -183,6 +190,7 @@ function renderAt(search: string) {
 }
 
 beforeEach(() => {
+  providerRefetch.mockReset().mockResolvedValue(undefined);
   vi.mocked(useProviderSubscriptionCard).mockReset().mockReturnValue(null);
   confirmSpy.mockReset().mockResolvedValue(true);
   codexAuthState.state = { kind: 'unauthenticated' };
@@ -199,6 +207,12 @@ beforeEach(() => {
     }),
   ];
   (window as unknown as { electronAPI: unknown }).electronAPI = {
+    subscriptionAccounts: {
+      command: vi.fn(async ({ providerId }: { providerId: string }) => ({
+        providerId, configured: false, strategy: 'least', accounts: [],
+      })),
+      onChanged: vi.fn(() => () => undefined),
+    },
     maker: {
       listProviders: vi.fn(async () => ({ providers: providersState.providers, dataOwnerId: 'owner', ownerGeneration: 1 })),
       setProviderPresentation: vi.fn(async () => ({ ok: true })),
@@ -223,6 +237,82 @@ afterEach(() => {
 });
 
 describe('ProvidersSection — 深链定位', () => {
+  // 2026-11-14 recording, unit: the account list can finish reading before its header.
+  // Existing reconnect tests only inspected the settled page, missing the header's later
+  // legacy-to-pool remount that erased already-visible rows and flashed a loading spinner.
+  // The catalog already identifies the pool. Defer the header read and assert DOM continuity.
+  // Targeted run: 11.47s wall time, 486ms assertions; the existing page graph and jsdom dominate startup.
+  it.each(['openai', 'anthropic'] as const)('keeps loaded %s accounts mounted when the header confirms the catalog pool', async kind => {
+    providersState.providers = [makeProvider(kind, {
+      name: kind, connected: true, subscriptionAccountPool: kind,
+      auth: { method: 'oauth', native: kind === 'openai' ? 'codex' : 'claude' },
+      agents: kind === 'openai' ? ['codex'] : ['claude-code'],
+    })];
+    const pool: SubscriptionPoolView = {
+      providerId: kind, configured: true, strategy: 'least',
+      accounts: [{ id: 'default', identity: 'member@example.test', status: 'ready',
+        paused: false, limit: 4, weight: 1, running: 0, directory: '/fixture/account' }],
+    };
+    let completeHeader!: (view: SubscriptionPoolView) => void;
+    const headerRead = new Promise<SubscriptionPoolView>(resolve => { completeHeader = resolve; });
+    let reads = 0;
+    vi.mocked(window.electronAPI.subscriptionAccounts.command).mockImplementation(async () =>
+      ++reads === 2 ? headerRead : pool);
+    renderAt(`?tab=providers&connect=${kind}`);
+    const row = await screen.findByTestId('subscription-account');
+    expect(within(row).getByText('member@example.test')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'settings.providers.button.disconnect' })).toBeTruthy();
+
+    await act(async () => { completeHeader(pool); });
+
+    expect(screen.getByTestId('subscription-account')).toBe(row);
+    expect(row.isConnected).toBe(true);
+  });
+
+  // #9517 review, unit: exercise the real provider header's default-account
+  // reconnect. Wizard/account-list tests do not cover this independent catch.
+  it.each([
+    ['SUBSCRIPTION_CODEX_PROVIDER_AUTH', 'subscriptionAccounts.providerManagedAuth'],
+    ['SUBSCRIPTION_LOGIN_CANCELLED', null],
+    ['SUBSCRIPTION_ACCOUNT_FAILED', 'subscriptionAccounts.failed'],
+    ['SUBSCRIPTION_ACCOUNT_UNREACHABLE', 'subscriptionAccounts.unreachable'],
+  ] as const)('preserves pooled header reconnect feedback for %s', async (code, expectedMessage) => {
+    providersState.providers = [makeProvider('openai', { name: 'OpenAI', connected: true, agents: ['codex'] })];
+    const command = vi.mocked(window.electronAPI.subscriptionAccounts.command);
+    command.mockImplementation(async (input) => {
+      if (input.action === 'login') throw new Error(`[${code}] synthetic sign-in result`);
+      return { providerId: 'openai', configured: true, strategy: 'least', accounts: [] };
+    });
+    renderAt('?tab=providers&connect=openai');
+    const loginButton = await screen.findByRole('button', { name: 'subscriptionAccounts.login' });
+    fireEvent.click(loginButton);
+    await waitFor(() => expect(command).toHaveBeenCalledWith({
+      action: 'login', providerId: 'openai', accountId: 'default', loginKey: expect.any(String),
+    }));
+    await waitFor(() => expect(loginButton.textContent).toBe('subscriptionAccounts.login'));
+    expect((loginButton as HTMLButtonElement).disabled).toBe(false);
+    if (expectedMessage) expect(toastError).toHaveBeenCalledExactlyOnceWith(expectedMessage);
+    else expect(toastError).not.toHaveBeenCalled();
+  });
+
+  // 2026-11-18 user report, unit: every account read timed out on a bad DNS answer, and the header
+  // turned "Not connected" with a sign-in button, so a valid login looked lost. Previous header
+  // cases only used ready or empty pools. Minimal input: the only account is unavailable.
+  it('offers a re-read, not sign-in, when the pool accounts cannot be read', async () => {
+    providersState.providers = [makeProvider('openai', { name: 'OpenAI', connected: true, agents: ['codex'] })];
+    const command = vi.mocked(window.electronAPI.subscriptionAccounts.command);
+    command.mockResolvedValue({ providerId: 'openai', configured: true, strategy: 'least',
+      accounts: [{ id: 'default', identity: 'member@example.test', status: 'unavailable',
+        paused: false, limit: 4, weight: 1, running: 0, directory: '/fixture/account' }] });
+    renderAt('?tab=providers&connect=openai');
+    const retry = await screen.findByRole('button', { name: 'subscriptionAccounts.signIn.retry' });
+    expect(screen.queryByRole('button', { name: 'subscriptionAccounts.login' })).toBeNull();
+    const reads = command.mock.calls.length;
+    fireEvent.click(retry);
+    await waitFor(() => expect(command.mock.calls.length).toBeGreaterThan(reads));
+    expect(command.mock.calls.slice(reads).every(([input]) => input.action === 'read')).toBe(true);
+  });
+
   it('does not rediscover a deleted local Codex provider into the settings list', async () => {
     providersState.providers.push(makeProvider('openai', {
       name: 'Deleted local account', removed: true, imageModels: [{ id: 'image', name: 'Image' }],
@@ -317,21 +407,31 @@ describe('ProvidersSection — 深链定位', () => {
   it.each(['subscriptionAccount', 'openAiAccount'] as const)(
     'shows usage windows without a details disclosure across %s changes',
     async (identityField) => {
-      const account = { title: 'ChatGPT', windows: [{ key: 'weekly', title: 'Weekly', window: { utilization: 20 }, detail: 'Weekly usage details' }] };
-      vi.mocked(useProviderSubscriptionCard).mockReturnValue(account);
+      // Each row owns its quota, including the CLI-origin account. A successful empty pool
+      // must never display an unrelated provider-wide card.
+      vi.mocked(window.electronAPI.subscriptionAccounts.command).mockResolvedValue({
+        providerId: 'openai', configured: true, strategy: 'least', accounts: [{
+          id: 'default', directory: 'fixture', status: 'ready', paused: false,
+          limit: 1, weight: 1, running: 0, identity: 'first@example.test',
+          usage: { codex: { credits: null, buckets: { codex: {
+            limitId: 'codex', limitName: null, updatedAt: Date.now(), primary: null,
+            secondary: { usedPercent: 20, windowMinutes: 10080, resetsAt: null },
+          } } } },
+        }],
+      });
       const provider = makeProvider('openai', {
         connected: true,
         [identityField]: { source: 'oauth', identity: 'first@example.test' },
       });
       providersState.providers = [provider];
       const view = render(<MemoryRouter><ProvidersSection /></MemoryRouter>);
-      const usage = await screen.findByTestId('provider-usage-module');
-      expect(within(usage).getByRole('progressbar', { name: 'Weekly' })).toBeTruthy();
+      const usage = await screen.findByTestId('subscription-account-usage');
+      expect(within(usage).getByRole('progressbar', { name: 'quotaCard.weeklyLabel' })).toBeTruthy();
       expect(within(usage).queryByText('Weekly usage details')).toBeNull();
       expect(screen.queryByRole('button', { name: 'quotaCard.usageTitle' })).toBeNull();
       providersState.providers = [{ ...provider, [identityField]: { source: 'oauth', identity: 'second@example.test' } }];
       view.rerender(<MemoryRouter><ProvidersSection /></MemoryRouter>);
-      expect(within(screen.getByTestId('provider-usage-module')).getByRole('progressbar', { name: 'Weekly' })).toBeTruthy();
+      expect(within(screen.getByTestId('subscription-account-usage')).getByRole('progressbar', { name: 'quotaCard.weeklyLabel' })).toBeTruthy();
     },
   );
 
@@ -507,7 +607,9 @@ describe('ProvidersSection — 深链定位', () => {
 
   it('a cancelled login cannot clear a newer login on the same account', async () => {
     const completions: ((result: { ok: boolean }) => void)[] = [];
-    const login = vi.fn((_id: string, _options?: { ownerId?: string }) => new Promise<{ ok: boolean }>((resolve) => completions.push(resolve)));
+    const login = vi.fn<typeof window.electronAPI.maker.providerOAuthLogin>(
+      () => new Promise<{ ok: boolean }>((resolve) => completions.push(resolve)),
+    );
     let progress!: Parameters<typeof window.electronAPI.maker.onProviderOAuthProgress>[0];
     const openExternal = vi.fn(async () => ({ success: true }));
     window.electronAPI.openExternal = openExternal;
@@ -663,8 +765,17 @@ describe('ProvidersSection — 深链定位', () => {
     expect(window.electronAPI.builtinApiKeyRemove).not.toHaveBeenCalled();
   });
 
-  it('invalidated OpenAI auth blocks model selection even before the catalog reports disconnection', async () => {
+  it.each([
+    { configured: false, usable: false },
+    { configured: true, usable: false },
+    { configured: true, usable: true },
+  ])('invalidated default OpenAI auth only allows models when another pooled account is usable ($configured/$usable)', async ({ configured, usable }) => {
     codexAuthState.state = { kind: 'reconnect-required', reason: 'token_revoked' };
+    vi.mocked(window.electronAPI.subscriptionAccounts.command).mockResolvedValue({
+      providerId: 'openai', configured, strategy: 'least',
+      accounts: usable ? [{ id: 'second', paused: false, limit: 4, weight: 1,
+        directory: '/fixture/.codex-second', status: 'ready', running: 0 }] : [],
+    });
     providersState.providers = [
       makeProvider('openai', {
         name: 'OpenAI',
@@ -684,11 +795,16 @@ describe('ProvidersSection — 深链定位', () => {
       }),
     ];
     renderAt('?tab=providers&connect=openai');
-    const toggle = (await screen.findByRole('switch', { name: 'GPT-6' })) as HTMLButtonElement;
-    expect(toggle.disabled).toBe(true);
+    await waitFor(() => expect((screen.getByRole('switch', { name: 'GPT-6' }) as HTMLButtonElement).disabled).toBe(!usable));
+    const toggle = screen.getByRole('switch', { name: 'GPT-6' });
     fireEvent.click(toggle);
-    expect(setModelVisibilitiesSpy).not.toHaveBeenCalled();
-    expect(screen.getByText('settings.providers.models.manage.connectionRequired')).toBeTruthy();
+    if (usable) {
+      expect(setModelVisibilitiesSpy).toHaveBeenCalledOnce();
+      expect(screen.queryByText('settings.providers.models.manage.connectionRequired')).toBeNull();
+    } else {
+      expect(setModelVisibilitiesSpy).not.toHaveBeenCalled();
+      expect(screen.getByText('settings.providers.models.manage.connectionRequired')).toBeTruthy();
+    }
   });
 
   it('ChatGPT 系统共享登录失效时显示来源说明并打开 ChatGPT App', async () => {
@@ -1155,6 +1271,30 @@ describe('ProvidersSection — 分享来的供应商深链', () => {
 
   afterEach(() => resetProviderShareStoreForTests());
 
+  // #8065 r4430950535: unit/jsdom, real parent selection and deferred refetch.
+  // The earlier completion test protected an edit draft but not the detail pane.
+  // Minimal race: complete a wizard, select a local/shared row while refreshing,
+  // then settle the old refresh; the newer detail selection must remain visible.
+  it.each(['local', 'shared'] as const)('keeps a newer %s provider selection after wizard refresh', async target => {
+    stubReceived([{ ...share, providerLabel: 'Shared fixture' }]);
+    providersState.providers = [
+      makeProvider('anthropic', { name: 'Anthropic', connected: true }),
+      makeProvider('added-endpoint', { name: 'Created endpoint', connected: true }),
+    ];
+    renderAt('?tab=providers&wizard=1');
+    await screen.findByTestId('wizard-stub');
+    let release!: () => void;
+    providerRefetch.mockReturnValueOnce(new Promise<void>(resolve => { release = resolve; }));
+    let completion!: Promise<void>;
+    act(() => { completion = wizardPropsSpy.mock.lastCall![0].onDone('added-endpoint'); });
+    fireEvent.click(await screen.findByRole('button', { name: target === 'local' ? /^Anthropic/ : /Shared fixture/ }));
+    if (target === 'local') expect(screen.getByTestId('provider-detail-identity').textContent).toContain('Anthropic');
+    else await screen.findByTestId('provider-share-received-detail');
+    await act(async () => { release(); await completion; });
+    if (target === 'local') expect(screen.getByTestId('provider-detail-identity').textContent).toContain('Anthropic');
+    else expect(screen.getByTestId('provider-share-received-detail')).toBeTruthy();
+  });
+
   it('receivedShare=<shareId> → 选中那条分享来的供应商；参数消费后清除', async () => {
     stubReceived([share]);
     renderAt('?tab=providers&receivedShare=share-1');
@@ -1201,3 +1341,95 @@ describe('ProvidersSection — 分享来的供应商深链', () => {
     expect(screen.getByTestId('provider-detail-identity').textContent).toContain('Anthropic');
   });
 });
+
+
+it('routes a custom-name search through the existing wizard and resumes its draft on cancel', async () => {
+  renderAt('?tab=providers&wizard=1');
+  await screen.findByTestId('wizard-stub');
+  act(() => wizardPropsSpy.mock.lastCall![0].onOpenCustomForm());
+  await screen.findByTestId('custom-provider-dialog-stub');
+  expect(customDialogSpy.mock.lastCall![0].suspended).toBe(false);
+  act(() => customDialogSpy.mock.lastCall![0].onSelectProvider({ kind: 'preset', presetId: 'deepseek' }));
+  expect(wizardSpy).toHaveBeenLastCalledWith({ kind: 'preset', presetId: 'deepseek' });
+  expect(customDialogSpy.mock.lastCall![0].suspended).toBe(true);
+  act(() => wizardPropsSpy.mock.lastCall![0].onClose());
+  expect(screen.queryByTestId('wizard-stub')).toBeNull();
+  expect(customDialogSpy.mock.lastCall![0].suspended).toBe(false);
+});
+
+// #8065 r4435752676: unit/jsdom, real parent state with child boundary stubs.
+// Prior deferred-refresh coverage kept drafts/selections but did not reopen a wizard.
+// Complete, reopen through either entry while refreshing, then settle the old refresh:
+// the completed instance must unmount and the new instance must survive.
+it.each(['add', 'suggestion'] as const)('mounts a fresh wizard from %s while the completed wizard refreshes', async entry => {
+  providersState.providers.push(makeProvider('openai', { name: 'OpenAI' }));
+  vi.mocked(window.electronAPI.maker.scanLocalCli).mockResolvedValue({ detections: [{
+    cli: 'codex-cli', providerId: 'openai', installed: true, loggedIn: true, sharedWithCindy: false,
+  }] });
+  renderAt('?tab=providers&wizard=1');
+  const completedWizard = await screen.findByTestId('wizard-stub');
+  let release!: () => void;
+  providerRefetch.mockReturnValueOnce(new Promise<void>(resolve => { release = resolve; }));
+  let completion!: Promise<void>;
+  act(() => { completion = wizardPropsSpy.mock.lastCall![0].onDone(); });
+  expect(screen.queryByTestId('wizard-stub')).toBeNull();
+  fireEvent.click(await screen.findByRole('button', {
+    name: entry === 'add' ? 'settings.providers.addProvider' : /settings.providers.detect.action/,
+  }));
+  const reopenedWizard = screen.getByTestId('wizard-stub');
+  expect(reopenedWizard).not.toBe(completedWizard);
+  expect(wizardSpy).toHaveBeenLastCalledWith(entry === 'add' ? undefined : { kind: 'builtin', providerId: 'openai' });
+  await act(async () => { release(); await completion; });
+  expect(screen.getByTestId('wizard-stub')).toBe(reopenedWizard);
+});
+
+// #8065 r4430752284: the existing cancel test never deferred completion/refetch.
+// Renderer unit: real parent state, mocked child boundaries; a newly opened edit
+// and its unsaved input must survive the old search wizard's refresh completion.
+it('keeps a newly opened edit draft when the completed search wizard refresh settles', async () => {
+  providersState.providers = [makeProvider('existing-endpoint', {
+    name: 'Existing endpoint', source: 'user', connected: false, auth: { method: 'apiKey' },
+    models: { 'claude-code': [{ id: 'fixture-model', name: 'Fixture', contextWindow: 100, efforts: [], defaultEffort: null }] },
+  })];
+  renderAt('?tab=providers&connect=existing-endpoint');
+  await screen.findByRole('button', { name: 'settings.providers.custom.editAria' });
+  fireEvent.click(screen.getByRole('button', { name: 'settings.providers.addProvider' }));
+  await screen.findByTestId('wizard-stub');
+  act(() => wizardPropsSpy.mock.lastCall![0].onOpenCustomForm());
+  act(() => customDialogSpy.mock.lastCall![0].onSelectProvider({ kind: 'preset', presetId: 'deepseek' }));
+  let release!: () => void;
+  providerRefetch.mockReturnValueOnce(new Promise<void>(resolve => { release = resolve; }));
+  let completion!: Promise<void>;
+  act(() => { completion = wizardPropsSpy.mock.lastCall![0].onDone('added-endpoint'); });
+  fireEvent.click(screen.getByRole('button', { name: 'settings.providers.custom.editAria' }));
+  const input = screen.getByRole('textbox', { name: 'edit connection draft' });
+  fireEvent.change(input, { target: { value: 'Unsaved edit' } });
+  await act(async () => { release(); await completion; });
+  expect(screen.getByRole('textbox', { name: 'edit connection draft' })).toBe(input);
+  expect((input as HTMLInputElement).value).toBe('Unsaved edit');
+  expect(customDialogSpy.mock.lastCall![0].initial.id).toBe('existing-endpoint');
+});
+
+// #8065 r4430831420: real parent state with child boundary stubs (unit/jsdom).
+// Prior cancel coverage did not distinguish connection failures from stale targets.
+// The smallest caller reason must restore the same draft, with a catalog toast
+// only when the target is unavailable; connector errors are already shown upstream.
+it.each(['connection-failed', 'target-unavailable'] as const)(
+  'resumes the search draft with the correct toast policy for %s', async reason => {
+    renderAt('?tab=providers&wizard=1');
+    await screen.findByTestId('wizard-stub');
+    act(() => wizardPropsSpy.mock.lastCall![0].onOpenCustomForm());
+    const input = screen.getByRole('textbox', { name: 'custom connection draft' });
+    fireEvent.change(input, { target: { value: 'My unsaved endpoint' } });
+    act(() => customDialogSpy.mock.lastCall![0].onSelectProvider({ kind: 'ollama' }));
+    expect(customDialogSpy.mock.lastCall![0].suspended).toBe(true);
+    toastError.mockClear();
+    act(() => wizardPropsSpy.mock.lastCall![0].onEntryUnavailable(reason));
+    expect(screen.queryByTestId('wizard-stub')).toBeNull();
+    expect(customDialogSpy.mock.lastCall![0].suspended).toBe(false);
+    expect(screen.getByRole('textbox', { name: 'custom connection draft' })).toBe(input);
+    expect((input as HTMLInputElement).value).toBe('My unsaved endpoint');
+    if (reason === 'connection-failed') expect(toastError).not.toHaveBeenCalled();
+    else expect(toastError).toHaveBeenCalledExactlyOnceWith('settings.providers.custom.nameSearchUnavailable');
+  },
+);

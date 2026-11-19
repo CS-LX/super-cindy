@@ -146,7 +146,21 @@ struct MBManageRow: Decodable, Identifiable, Equatable {
   let hidden: Bool
 }
 
+struct MBPanelDesign: Decodable, Equatable {
+  let metrics: [String: Double]
+  let colors: [String: [String]]
+}
+
+/// Defaults keep older preview fixtures readable; production values arrive from shared/quotaPanelDesign.ts.
+enum PanelDesign {
+  static var current: MBPanelDesign?
+  static func metric(_ name: String, _ fallback: CGFloat) -> CGFloat {
+    current?.metrics[name].map { CGFloat($0) } ?? fallback
+  }
+}
+
 struct MBView: Decodable, Equatable {
+  let presentation: MBPanelDesign?
   let locale: String
   let moneySymbol: String
   let strings: [String: String]
@@ -215,6 +229,20 @@ enum Palette {
     )
   }
 
+  private static func shared(_ name: String, _ fallback: Color) -> Color {
+    guard let pair = PanelDesign.current?.colors[name], pair.count == 2 else { return fallback }
+    func parse(_ text: String) -> NSColor? {
+      let raw = String(text.dropFirst())
+      guard (raw.count == 6 || raw.count == 8), let value = UInt32(raw, radix: 16) else { return nil }
+      let rgb = raw.count == 8 ? value >> 8 : value
+      let alpha = raw.count == 8 ? CGFloat(value & 255) / 255 : 1
+      return NSColor(srgbRed: CGFloat((rgb >> 16) & 255) / 255,
+        green: CGFloat((rgb >> 8) & 255) / 255, blue: CGFloat(rgb & 255) / 255, alpha: alpha)
+    }
+    guard let light = parse(pair[0]), let dark = parse(pair[1]) else { return fallback }
+    return dynamic(light, dark)
+  }
+
   private static func dynamic(_ light: NSColor, _ dark: NSColor) -> Color {
     Color(nsColor: NSColor(name: nil) { appearance in
       appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
@@ -231,51 +259,51 @@ enum Palette {
     dynamic(hex(warmBlack, light), hex(warmWhite, dark))
   }
   /// Titles and values: nearly opaque so they stay crisp.
-  static let ink = neutral(0.92, 0.94)
-  static let ink2 = neutral(0.60, 0.62)
+  static var ink: Color { shared("ink", neutral(0.92, 0.94)) }
+  static var ink2: Color { shared("ink2", neutral(0.60, 0.62)) }
   /// Times, units and captions.
-  static let ink3 = neutral(0.42, 0.42)
+  static var ink3: Color { shared("ink3", neutral(0.42, 0.42)) }
   /// Outlines and tube borders.
-  static let ink4 = neutral(0.14, 0.13)
+  static var ink4: Color { shared("ink4", neutral(0.14, 0.13)) }
   /// Faint fills: hover, ring tracks.
-  static let ink5 = neutral(0.05, 0.05)
-  static let line = neutral(0.08, 0.07)
-  static let tile = dynamic(NSColor(white: 1, alpha: 0.45), hex(warmWhite, 0.05))
-  static let edge = dynamic(NSColor(white: 1, alpha: 0.8), hex(warmWhite, 0.09))
+  static var ink5: Color { shared("ink5", neutral(0.05, 0.05)) }
+  static var line: Color { shared("line", neutral(0.08, 0.07)) }
+  static var tile: Color { shared("tile", dynamic(NSColor(white: 1, alpha: 0.45), hex(warmWhite, 0.05))) }
+  static var edge: Color { shared("edge", dynamic(NSColor(white: 1, alpha: 0.8), hex(warmWhite, 0.09))) }
   /// Solid fill for the primary pill: it is the one control that must read at full contrast.
-  static let cta = dynamic(hex(0x1F1E1C), hex(warmWhite))
+  static var cta: Color { shared("cta", dynamic(hex(0x1F1E1C), hex(warmWhite))) }
   // The liquid is the ink color at partial opacity, not a flat gray: the glass well shows
   // through, so it reads as water instead of paint, and it stays softer than text so seven
   // full tubes do not read as hard black or white bars.
   /// One flat tone, no gradient: warm black (Light) or warm white (Dark) at an opacity.
-  static let liquid = neutral(0.46, 0.72)
+  static var liquid: Color { shared("liquid", neutral(0.46, 0.72)) }
   /// Neutral ring arcs (Grok, a balance) share the liquid's color.
-  static let fill = neutral(0.42, 0.80)
+  static var fill: Color { shared("fill", neutral(0.42, 0.80)) }
   /// Text on an `ink` pill.
-  static let onInk = dynamic(hex(0xFFFFFF), hex(0x0E0E0D))
+  static var onInk: Color { shared("onInk", dynamic(hex(0xFFFFFF), hex(0x0E0E0D))) }
   /// Warm tint and glows laid over the popover material.
-  static let panelTint = dynamic(hex(0xF8F7F3, 0.5), hex(0x1A1918, 0.54))
-  static let panelGlow = dynamic(hex(0xEA6B17, 0.09), hex(0xEA6B17, 0.12))
-  static let panelGlow2 = dynamic(NSColor(white: 1, alpha: 0.55), hex(0xFFF4E4, 0.04))
+  static var panelTint: Color { shared("panelTint", dynamic(hex(0xF8F7F3, 0.5), hex(0x1A1918, 0.54))) }
+  static var panelGlow: Color { shared("panelGlow", dynamic(hex(0xEA6B17, 0.09), hex(0xEA6B17, 0.12))) }
+  static var panelGlow2: Color { shared("panelGlow2", dynamic(NSColor(white: 1, alpha: 0.55), hex(0xFFF4E4, 0.04))) }
   /// Glass well behind the liquid.
-  static let wellTop = dynamic(NSColor(white: 1, alpha: 0.7), hex(warmWhite, 0.07))
-  static let wellBottom = dynamic(NSColor(white: 1, alpha: 0.5), hex(warmWhite, 0.025))
-  static let wellShade = dynamic(NSColor(white: 0, alpha: 0.08), NSColor(white: 0, alpha: 0.5))
+  static var wellTop: Color { shared("wellTop", dynamic(NSColor(white: 1, alpha: 0.7), hex(warmWhite, 0.07))) }
+  static var wellBottom: Color { shared("wellBottom", dynamic(NSColor(white: 1, alpha: 0.5), hex(warmWhite, 0.025))) }
+  static var wellShade: Color { shared("wellShade", dynamic(NSColor(white: 0, alpha: 0.08), NSColor(white: 0, alpha: 0.5))) }
   /// Red of the Cindy logo's ">" mark (the logo red, not a state color).
-  static let brand = Color(nsColor: hex(0xF70121))
+  static var brand: Color { shared("brand", Color(nsColor: hex(0xF70121))) }
   /// Quota yellow (30% or less left, `@cindy/maker-shared/quota-level`); `error` is 10% or less.
-  static let warn = Color(nsColor: hex(0xF3A115))
+  static var warn: Color { shared("warn", Color(nsColor: hex(0xF3A115))) }
   /// Shared by the menu-bar dot and its explanation inside the panel.
   private static let remoteControlValue: UInt32 = 0xFF9F0A
   static let remoteControlHex = String(format: "#%06X", remoteControlValue)
   static let remoteControl = Color(nsColor: hex(remoteControlValue))
-  static let error = Color(nsColor: hex(0xEF4444))
+  static var error: Color { shared("error", Color(nsColor: hex(0xEF4444))) }
   static let focus = Color(nsColor: hex(0x417CDD))
-  static let claude = Color(nsColor: hex(0xD97757))
-  static let claude2 = Color(nsColor: hex(0xE8A184))
-  static let claude3 = Color(nsColor: hex(0xF2C9B6))
-  static let codex = Color(nsColor: hex(0x7A9DFF))
-  static let pi = dynamic(hex(0x14B8A6), hex(0x2DD4BF))
+  static var claude: Color { shared("claude", Color(nsColor: hex(0xD97757))) }
+  static var claude2: Color { shared("claude2", Color(nsColor: hex(0xE8A184))) }
+  static var claude3: Color { shared("claude3", Color(nsColor: hex(0xF2C9B6))) }
+  static var codex: Color { shared("codex", Color(nsColor: hex(0x7A9DFF))) }
+  static var pi: Color { shared("pi", dynamic(hex(0x14B8A6), hex(0x2DD4BF))) }
 
   static func named(_ name: String?) -> Color {
     switch name {
@@ -620,6 +648,7 @@ final class MenubarStore: ObservableObject {
 
   func apply(_ next: MBView) {
     Fmt.symbol = next.moneySymbol
+    PanelDesign.current = next.presentation
     view = next
     if refreshing { refreshing = false }
     if let draft = draftOrder, draft == next.settings.order || draftMatches(next) {
@@ -635,9 +664,9 @@ final class MenubarStore: ObservableObject {
   /// fits the captions, task rows and the month card in every language.
   static func narrowWidth(tubes: Int) -> CGFloat {
     switch tubes {
-    case ...2: return 320
-    case 3: return 332
-    case 4: return 350
+    case ...2: return PanelDesign.metric("widthTwo", 320)
+    case 3: return PanelDesign.metric("widthThree", 332)
+    case 4: return PanelDesign.metric("widthFour", 350)
     default: return StatusController.narrowWidth
     }
   }
@@ -713,6 +742,41 @@ final class MenubarStore: ObservableObject {
   }
 }
 
+// MARK: - Status button
+
+/// A panel update can change task previews without changing anything in the status item.
+/// Avoid even assigning equal AppKit properties: setters can invalidate the button's bitmap.
+@MainActor
+enum StatusButtonPresentation {
+  static func update(_ button: NSButton, view: MBView?) {
+    updateIcon(button, controlled: view?.remotelyControlled == true)
+    let text = view?.statusTitle ?? ""
+    let title = text.isEmpty ? "" : "\u{2009}" + text
+    if button.attributedTitle.string != title {
+      button.attributedTitle = NSAttributedString(
+        string: title,
+        attributes: text.isEmpty ? [:] : [
+          .font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular),
+          .baselineOffset: 0,
+        ]
+      )
+    }
+    let position: NSControl.ImagePosition = text.isEmpty ? .imageOnly : .imageLeading
+    if button.imagePosition != position { button.imagePosition = position }
+    let label = text.isEmpty ? "Cindy" : "Cindy, \(text)"
+    if button.accessibilityLabel() != label { button.setAccessibilityLabel(label) }
+    let tooltip = view?.headlinePrimary
+    if button.toolTip != tooltip { button.toolTip = tooltip }
+  }
+
+  static func updateIcon(_ button: NSButton, controlled: Bool) {
+    let dark = button.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+    let image = Logos.statusIcon(dark: dark, controlled: controlled)
+    // Logos owns one image per appearance/control state; identity avoids new allocations.
+    if button.image !== image { button.image = image }
+  }
+}
+
 // MARK: - Panel window
 
 final class MenubarPanel: NSPanel {
@@ -723,7 +787,7 @@ final class MenubarPanel: NSPanel {
 /// Rounded, frosted backing for the panel. Uses the system popover material so the panel
 /// reads like other menu bar extras in both appearances.
 final class PanelBackgroundView: NSVisualEffectView {
-  static let radius: CGFloat = 20
+  static var radius: CGFloat { PanelDesign.metric("panelRadius", 20) }
 
   override init(frame frameRect: NSRect) {
     super.init(frame: frameRect)
@@ -750,14 +814,14 @@ final class PanelBackgroundView: NSVisualEffectView {
 
 @MainActor
 final class StatusController: NSObject, NSWindowDelegate {
-  static let narrowWidth: CGFloat = 368
+  static var narrowWidth: CGFloat { PanelDesign.metric("widthMany", 368) }
   private static let screenGap: CGFloat = 6
   private static let sideMargin: CGFloat = 12
   /// Screens with less visible height than this get the short layout.
-  private static let shortScreenHeight: CGFloat = 1000
+  private static var shortScreenHeight: CGFloat { PanelDesign.metric("shortScreenHeight", 1000) }
   /// The panel never takes more than this share of the visible height, so it reads as a
   /// menu and not a window; anything longer scrolls between the fixed header and footer.
-  private static let heightShare: CGFloat = 0.86
+  private static var heightShare: CGFloat { PanelDesign.metric("heightShare", 0.86) }
   /// Preview mode only: forces the short layout regardless of the screen.
   var forceShort = false
   /// Preview mode only: focus moving to another app must not close the panel mid-snapshot.
@@ -783,6 +847,9 @@ final class StatusController: NSObject, NSWindowDelegate {
     self.store = store
     statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     super.init()
+    // Give macOS a stable identity so menu-bar managers can persist the user's
+    // placement across helper restarts and menu-bar reordering.
+    statusItem.autosaveName = "cindy.menubar.primary"
     if let button = statusItem.button {
       // Wallpaper can give the menu bar a different appearance from the app.
       statusAppearanceObservation = button.observe(\.effectiveAppearance, options: [.initial, .new]) { [weak self] _, _ in
@@ -850,32 +917,12 @@ final class StatusController: NSObject, NSWindowDelegate {
 
   private func updateStatusTitle() {
     guard let button = statusItem.button else { return }
-    updateStatusIcon()
-    let text = store.view?.statusTitle ?? ""
-    if text.isEmpty {
-      button.attributedTitle = NSAttributedString(string: "")
-      button.imagePosition = .imageOnly
-    } else {
-      button.imagePosition = .imageLeading
-      button.attributedTitle = NSAttributedString(
-        string: "\u{2009}" + text,
-        attributes: [
-          .font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular),
-          .baselineOffset: 0,
-        ]
-      )
-    }
-    if let view = store.view {
-      button.setAccessibilityLabel(text.isEmpty ? "Cindy" : "Cindy, \(text)")
-      button.toolTip = view.headlinePrimary
-    }
+    StatusButtonPresentation.update(button, view: store.view)
   }
 
   private func updateStatusIcon() {
     guard let button = statusItem.button else { return }
-    let dark = button.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-    let controlled = store.view?.remotelyControlled == true
-    button.image = Logos.statusIcon(dark: dark, controlled: controlled)
+    StatusButtonPresentation.updateIcon(button, controlled: store.view?.remotelyControlled == true)
   }
 
   @objc func toggle() {
@@ -1363,7 +1410,7 @@ struct PressScaleStyle: ButtonStyle {
 }
 
 struct Tile<Content: View>: View {
-  var radius: CGFloat = 14
+  var radius: CGFloat = PanelDesign.metric("tileRadius", 14)
   @ViewBuilder let content: Content
 
   var body: some View {
@@ -1803,7 +1850,7 @@ struct RemoteControlStatus: View {
           .accessibilityHidden(true)
       }
       .padding(10)
-      .background(RoundedRectangle(cornerRadius: 14, style: .circular).fill(hovering ? Palette.ink5 : .clear))
+      .background(RoundedRectangle(cornerRadius: PanelDesign.metric("tileRadius", 14), style: .circular).fill(hovering ? Palette.ink5 : .clear))
       .contentShape(Rectangle())
     }
     .buttonStyle(PressScaleStyle())
@@ -2147,7 +2194,7 @@ struct Cells: View {
   var body: some View {
     HStack(alignment: .top, spacing: cells.count > 6 ? 4 : 8) {
       ForEach(Array(cells.enumerated()), id: \.element.id) { index, cell in
-        CellView(cell: cell, index: index, fillToken: store.fillToken, tubeHeight: store.short ? 82 : 104) {
+        CellView(cell: cell, index: index, fillToken: store.fillToken, tubeHeight: store.short ? PanelDesign.metric("tubeShort", 82) : PanelDesign.metric("tubeTall", 104)) {
           store.go(.detail(cell.id))
         }
       }
@@ -2263,7 +2310,19 @@ struct CellView: View {
 
   @ViewBuilder
   private var valueLabel: some View {
-    if let value = cell.value {
+    if cell.reserve, let value = cell.value {
+      // Credits have no percentage denominator. Stack their unit inside the existing
+      // 22pt header so five narrow columns keep their widths and tube alignment.
+      VStack(spacing: 0) {
+        NumFont.adaptive(value, size: 15, weight: .semibold, textSize: 12)
+          .foregroundStyle(Palette.ink)
+        if let unit = cell.valueUnit {
+          Text(unit).font(.system(size: 8)).foregroundStyle(Palette.ink3)
+        }
+      }
+      .lineLimit(1)
+      .minimumScaleFactor(0.75)
+    } else if let value = cell.value {
       // The % sign uses the number font at about 60% of the value, on the same baseline.
       HStack(alignment: .firstTextBaseline, spacing: 1) {
         CountUpText(text: value, font: NumFont.font(cell.kind == "balance" ? 16 : 18), replayToken: fillToken, delay: Double(index) * 0.06)
@@ -2425,7 +2484,7 @@ struct TaskOverview: View {
           .padding(.horizontal, 10)
       } else {
         let rows = store.taskTab == .unread ? unread : ongoing
-        let limit = store.short ? 2 : 3
+        let limit = Int(store.short ? PanelDesign.metric("rowsShort", 2) : PanelDesign.metric("rowsTall", 3))
         let shown = store.tasksExpanded ? rows : Array(rows.prefix(limit))
         VStack(spacing: 0) {
           if rows.isEmpty {
@@ -2577,7 +2636,7 @@ struct TaskList: View {
     let sorted = tasks.sorted { $0.value > $1.value }
     let total = max(0.0001, sorted.reduce(0) { $0 + $1.value })
     // A short screen keeps two rows; the rest are one click away on the usage page.
-    let shown = store.short ? 2 : 3
+    let shown = Int(store.short ? PanelDesign.metric("rowsShort", 2) : PanelDesign.metric("rowsTall", 3))
     let top = Array(sorted.prefix(shown))
     let rest = Array(sorted.dropFirst(shown))
     VStack(spacing: 0) {
@@ -2824,9 +2883,9 @@ struct MonthCard: View {
         .fixedSize()
       }
       .padding(EdgeInsets(top: 9, leading: 12, bottom: 9, trailing: 12))
-      .background(RoundedRectangle(cornerRadius: 14, style: .circular).fill(Palette.tile))
-      .overlay(RoundedRectangle(cornerRadius: 14, style: .circular).strokeBorder(Palette.line, lineWidth: 0.5))
-      .contentShape(RoundedRectangle(cornerRadius: 14, style: .circular))
+      .background(RoundedRectangle(cornerRadius: PanelDesign.metric("tileRadius", 14), style: .circular).fill(Palette.tile))
+      .overlay(RoundedRectangle(cornerRadius: PanelDesign.metric("tileRadius", 14), style: .circular).strokeBorder(Palette.line, lineWidth: 0.5))
+      .contentShape(RoundedRectangle(cornerRadius: PanelDesign.metric("tileRadius", 14), style: .circular))
       .offset(y: hovering ? -1 : 0)
     }
     .buttonStyle(.plain)
@@ -3066,7 +3125,7 @@ struct DetailPage: View {
       TrackedScroll(offset: $offset, contentHeight: $contentHeight) {
         VStack(alignment: .leading, spacing: 0) {
 
-        let ring: CGFloat = store.short ? 160 : 188
+        let ring: CGFloat = store.short ? PanelDesign.metric("ringShort", 160) : PanelDesign.metric("ringTall", 188)
         ZStack {
           RingsView(rings: detail.rings, fillToken: store.fillToken, size: ring)
           VStack(spacing: 3) {
@@ -3860,8 +3919,8 @@ struct StatusPreview: View {
     }
     .frame(height: 68)
     .frame(maxWidth: .infinity)
-    .clipShape(RoundedRectangle(cornerRadius: 14, style: .circular))
-    .overlay(RoundedRectangle(cornerRadius: 14, style: .circular).strokeBorder(Palette.line, lineWidth: 0.5))
+    .clipShape(RoundedRectangle(cornerRadius: PanelDesign.metric("tileRadius", 14), style: .circular))
+    .overlay(RoundedRectangle(cornerRadius: PanelDesign.metric("tileRadius", 14), style: .circular).strokeBorder(Palette.line, lineWidth: 0.5))
     .animation(Motion.quick, value: text)
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(text.isEmpty ? "Cindy" : "Cindy \(text)")
@@ -4004,6 +4063,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   }
 }
 
+#if !MENUBAR_TEST
 @main
 enum MenubarHelperMain {
   static func main() {
@@ -4014,6 +4074,7 @@ enum MenubarHelperMain {
     withExtendedLifetime(delegate) { app.run() }
   }
 }
+#endif
 
 // Naidan silhouette traced from the original reference (24pt viewBox).
 let cindySilhouettePath = "M 11,4.5 L 10.25,4.75 L 9.5,5 L 9.25,5.25 L 9,5.5 L 8.5,5.75 L 8.25,6 L 8.25,6.25 L 7.75,6.5 L 7.75,6.75 L 7.5,7 L 7.25,7.25 L 7,7.5 L 7,7.75 L 6.75,8 L 6.75,8.25 L 6.5,8.5 L 6.5,8.75 L 6.25,9 L 6.25,9.25 L 6,9.5 L 6,9.75 L 5.75,10 L 5.75,10.25 L 5.75,10.5 L 5.75,10.75 L 5.5,11 L 5.5,11.25 L 5.5,11.5 L 5.5,11.75 L 5.25,12 L 5.25,12.25 L 5.25,12.5 L 5.25,12.75 L 5.25,13 L 5.25,13.25 L 5.25,13.5 L 5.25,13.75 L 5.25,14 L 5.25,14.25 L 5.25,14.5 L 5.25,14.75 L 5.25,15 L 5.5,15.25 L 5.5,15.5 L 5.5,15.75 L 5.5,16 L 5.75,16.25 L 5.75,16.5 L 5.75,16.75 L 6,17 L 6.25,17.25 L 6.25,17.5 L 6.5,17.75 L 6.75,18 L 7,18.25 L 7.25,18.5 L 7.5,18.75 L 7.75,19 L 8,19.25 L 15.75,19.25 L 16,19 L 16.25,18.75 L 16.5,18.5 L 16.75,18.25 L 17,18 L 17.25,17.75 L 17.5,17.5 L 17.5,17.25 L 17.75,17 L 18,16.75 L 18,16.5 L 18,16.25 L 18.25,16 L 18.25,15.75 L 18.25,15.5 L 18.5,15.25 L 18.5,15 L 18.5,14.75 L 18.5,14.5 L 18.5,14.25 L 18.5,14 L 18.5,13.75 L 18.5,13.5 L 18.5,13.25 L 18.5,13 L 18.5,12.75 L 18.5,12.5 L 18.5,12.25 L 18.5,12 L 18.5,11.75 L 18.25,11.5 L 18.25,11.25 L 18.25,11 L 18.25,10.75 L 18,10.5 L 18,10.25 L 18,10 L 17.75,9.75 L 17.75,9.5 L 17.5,9.25 L 17.5,9 L 17.5,8.75 L 17.25,8.5 L 17,8.25 L 17,8 L 16.75,7.75 L 16.75,7.5 L 16.5,7.25 L 16.25,7 L 16,6.75 L 16,6.5 L 15.75,6.25 L 15.5,6 L 15.25,5.75 L 14.75,5.5 L 14.5,5.25 L 14.25,5 L 13.5,4.75 L 12.75,4.5 Z"

@@ -1,3 +1,4 @@
+import { type OutputLimitDetails } from '@cindy/maker-shared';
 import type { AgentRequestReceipt } from '../../shared/forwardedRequest.js';
 import type { ImMessageSource } from '../../shared/imMessageSource';
 import type { Effort, PermissionMode } from '@/lib/userPreferences.types';
@@ -11,13 +12,19 @@ import type { AgentTaskTerminalStatus } from '@cindy/maker-shared/agent-task';
 import type {
   MessageSourceDevice,
   MessageSourceGroup,
+  MessageSourceGroupRequest,
+  MessageSourceGroupThread,
   MessageSourcePlugin,
 } from '@cindy/maker-shared/message-source';
 import type { ToolLoopErrorDetails } from '@cindy/maker-core';
 
 export type SessionStatus = 'active' | 'archived' | 'deleted';
 export type WorkspaceKind = 'project' | 'dialogue';
-export type DeviceLinkConnectionStatus = 'connected' | 'disconnected';
+/**
+ * 远端设备在本窗口侧栏里的连接态。`connecting` = 还没拿到权威快照(冷启动的缓存种入、
+ * relay 瞬时重连):画成「检测中」而不是离线,但写操作与 `disconnected` 一样被挡住。
+ */
+export type DeviceLinkConnectionStatus = 'connected' | 'connecting' | 'disconnected';
 
 /**
  * 当前 session 接的是哪个 agent。决定 message.agentMeta 的 JSON 形态。
@@ -69,11 +76,17 @@ export interface MessageSessionOrigin {
   /** 来源任务属于某个伙伴时：标签显示伙伴名与头像（名字优先取实时资料，其次用快照）。 */
   senderBotId?: string;
   senderBotName?: string;
+  /** 群成员在伙伴任务卡的话题里说的话，由伙伴转进这件任务：标签写出是谁、在哪个群聊。 */
+  groupThread?: MessageSourceGroupThread;
+  /** 本机主人在群里交给「群里的 Cindy」的请求：标签写出来自哪个群、是谁。 */
+  groupRequest?: MessageSourceGroupRequest;
   /**
    * Orca Lead / Worker 互发的消息：发送方角色名（Worker 为其 role）。卡片标题据此写
    * 「来自 Worker「role」的消息」；来源标签仍只在有 senderSessionId 时出现。
    */
   orcaSenderLabel?: string;
+  /** 系统合批总条数；不把整批归到首个 Worker。 */
+  orcaAutoBridgeBatchCount?: number;
   /** true = 由 Orca 落库来源（kind:'orca'）投影而来。 */
   orca?: true;
 }
@@ -88,7 +101,7 @@ export type MessageAutomationOrigin = MessageSchedulerOrigin | MessageSessionOri
 export type StoredMessageOrigin =
   | MessageSchedulerOrigin
   | (MessageSessionOrigin & { displayText?: string })
-  | { kind: 'orca'; senderLabel?: string; displayText?: string; senderSessionId?: string };
+  | { kind: 'orca'; senderLabel?: string; displayText?: string; senderSessionId?: string; autoBridge?: true; autoBridgeBatchCount?: number };
 
 /** 新任务「让插件选」的结果记录(第一条消息下方的一行说明)。 */
 export interface PluginModelRouteNote {
@@ -99,6 +112,8 @@ export interface PluginModelRouteNote {
   effort?: string;
   reason?: string;
   why?: 'no-opinion' | 'failed' | 'unavailable-route';
+  /** 这行说明来自用户的模型组而不是插件(pluginName 是路线的名字)；缺省 = 插件。 */
+  source?: 'model-group';
 }
 
 /**
@@ -123,6 +138,8 @@ export interface CcMeta {
   assistantPhase?: string;
   /** Native text item identity, used to reconcile streamed and imported history. */
   agentMessageId?: string;
+  /** Codex item text is durable but its sampling request has not yet been accepted. */
+  samplingAttemptPending?: false | { runtimeId: string };
   /** Exact native sampling attempt that failed before response completion. Original text is retained. */
   failedSamplingAttempt?: { threadId: string; turnId: string; attempt: number; itemId: string; error?: string };
   uuid?: string;
@@ -277,6 +294,9 @@ export interface CcMeta {
    */
   goalNotice?: 'usage-resumed' | 'capacity-resumed';
 
+  /** Context rebuilt in-place. Older hosts may omit the coverage marker. */
+  contextRebuild?: ContextRebuildMeta;
+
   /**
    * Host-side marker:个人版制作任务里 Agent 调用 cindy_make.report_complete 后落的
    * 完成记录(role:'assistant' + 空 content)。renderer 渲成完成卡片,不进 prompt。
@@ -386,6 +406,8 @@ export interface Session {
   runtimePending?: SessionRuntimePendingProjection | null;
   /** Allows a companion input to reach host baseline recovery; does not assert model availability. */
   runtimeBaselineRecoveryPending?: boolean;
+  /** Host projection of existing task plugin choices, including uninstalled providers. */
+  runtimePluginsSelected?: boolean;
   /**
    * 计划模式一级开关(与 permissionMode 正交):开启时 agent 先产出计划、经审批后再执行。
    * 计划批准后 agent 自动退出并经 plan_mode_changed → sessions:patched 回流为 false。
@@ -405,6 +427,9 @@ export interface Session {
    * 任务内的未读与角标照常。老 payload 缺失按未静音处理。
    */
   notificationsMuted?: boolean;
+  /** Inbox deferral, saved by the task host. Missing on older hosts. */
+  snoozedUntil?: string | null;
+  snoozedAt?: string | null;
   /**
    * 用户最近一次"按下发送"的时刻（ISO 8601，null = 从未发过）。
    * Sidebar 排序唯一时间轴：null ⟺ 草稿（归未分类），非 null 即按倒序上浮。
@@ -418,7 +443,7 @@ export interface Session {
   /** 会话来源。scheduler 表示由自动化任务创建；缺失时按 desktop 兼容旧 payload。 */
   source?: SessionSource;
   /** Host-owned teammate link, also used by the existing history API. Display only. */
-  companion?: { id: string; role: string; channel?: string; routineId?: string } | null;
+  companion?: { id: string; role: string; taskProjectDir?: string; channel?: string; routineId?: string } | null;
   /** Orca split-session role marker. null/undefined means a regular Maker session. */
   orcaRole?: OrcaRole | null;
   /** fork-session：派生来源会话 id（self-FK，源被删 → SET NULL）。null = 顶层会话。 */
@@ -543,7 +568,7 @@ export type MessageRole =
 
 /**
  * role='agent_switch' 行的 content 结构(JSON 存于 messages.content)。
- * handoff 是发给新引擎的交接摘要全文——只用于 UI 展开查看与 debug,
+ * handoff 是发给新引擎的交接内容——只用于 UI 展开查看与 debug,
  * 不作为对话正文渲染,也绝不回发给 agent(注入走 main 的 wire 前缀通道)。
  */
 export interface AgentSwitchContent {
@@ -559,9 +584,18 @@ export interface AgentSwitchContent {
   resumed?: boolean;
   /** Same-Harness cross-computer restoration result; omitted for legacy switches. */
   nativeHistory?: 'restored' | 'fallback';
+  handoffCoverage?: HandoffCoverage;
   toAgentDeviceId?: string | null;
   toAgentDeviceName?: string | null;
   switchReason?: 'quota-rebalance';
+}
+
+export type HandoffCoverage = 'complete' | 'condensed';
+
+export interface ContextRebuildMeta {
+  reason: string;
+  handoff?: string;
+  handoffCoverage?: HandoffCoverage;
 }
 
 export interface Message {
@@ -591,5 +625,6 @@ export interface Message {
   agentKind?: 'cc' | 'codex' | 'pi' | null;
   /** Structured guard details for a persisted tool-loop terminal error. */
   toolLoop?: ToolLoopErrorDetails;
+  outputLimit?: OutputLimitDetails;
   createdAt: string; // ISO 8601
 }

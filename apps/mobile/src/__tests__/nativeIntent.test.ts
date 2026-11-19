@@ -14,7 +14,10 @@ import {
 } from '@/device-link/providerShareLinkIntent';
 import { clearRelayJoinIntent, getPendingRelayJoinIntent } from '@/device-link/relayJoinIntent';
 import { redirectSystemPath } from '../../app/+native-intent';
-import { closeChatInvite, getChatInviteIntent, openManualChatInvite } from '@/chat/chatInviteIntent';
+import { sharedTaskHostPeer } from '@cindy/device-link';
+import { buildMobileSessionDeepLink } from '@/session/sessionLinks';
+import { closeChatInvite, getChatInviteIntent, openManualChatInvite, setManualChatInviteLink } from '@/chat/chatInviteIntent';
+import { closeGiftCard, getGiftCardIntent } from '@/gift-card/giftCardIntent';
 
 const invitation = 'A'.repeat(43);
 const incoming = 'cindy://shared-session?invitation=' + invitation + '&server=https%3A%2F%2Frelay.example.test';
@@ -30,10 +33,29 @@ function clearChatInvite() {
   const pending = getChatInviteIntent();
   if (pending) closeChatInvite(pending.id);
 }
-beforeEach(() => { vi.useFakeTimers(); clearSharedTaskInvitationIntent(); clearProviderShareLinkIntent(); clearRelayJoinIntent(); clearChatInvite(); setMobileAuthOwner(null); });
-afterEach(() => { clearSharedTaskInvitationIntent(); clearProviderShareLinkIntent(); clearRelayJoinIntent(); clearChatInvite(); vi.useRealTimers(); });
+function clearGiftCard() {
+  const pending = getGiftCardIntent();
+  if (pending) closeGiftCard(pending.id);
+}
+beforeEach(() => { vi.useFakeTimers(); clearSharedTaskInvitationIntent(); clearProviderShareLinkIntent(); clearRelayJoinIntent(); clearChatInvite(); clearGiftCard(); setMobileAuthOwner(null); });
+afterEach(() => { clearSharedTaskInvitationIntent(); clearProviderShareLinkIntent(); clearRelayJoinIntent(); clearChatInvite(); clearGiftCard(); vi.useRealTimers(); });
 
 describe('mobile native deep-link redirects', () => {
+  // 契约：礼品卡兑换码等同于余额，原生入口必须在交给路由前把它收进内存。此前没有任何用例
+  // 覆盖 gift 链接；单元层即可验证（一条原生 URL，无网络、存储或原生运行时）。
+  it.each([true, false])('receives gift card links without routing their redeem code (initial=%s)', initial => {
+    for (const path of ['cindy://gift/G0123456789ABCDE', 'cindycn://gift/G012-3456-789A-BCDE', '/gift/G0123456789ABCDE']) {
+      const route = redirectSystemPath({ path, initial });
+      expect(route).toBe(initial ? '/' : null);
+      expect(getGiftCardIntent()).toMatchObject({ code: 'G0123456789ABCDE' });
+      expect(getChatInviteIntent()).toBeNull();
+      clearGiftCard();
+    }
+    // 残缺的链接也不落到 404 页：面板里提示兑换码无效。
+    expect(redirectSystemPath({ path: 'cindy://gift/oops', initial })).toBe(initial ? '/' : null);
+    expect(getGiftCardIntent()).toMatchObject({ invalidLink: true });
+  });
+
   // A2 contract: the actual native entry must redact the invite before routing,
   // preserve it across login, and never replace an active confirmation. Existing
   // shared-task/provider tests do not cover group invitations. Unit tier: one
@@ -44,8 +66,6 @@ describe('mobile native deep-link redirects', () => {
       `cindycn://chat-invite/${invitation}`,
       `cindydev://chat-invite/${invitation}`,
       `/chat-invite/${invitation}`,
-      `https://public.example.invalid/dl/chat-invite/join#${invitation}?app=cindycn`,
-      `/dl/chat-invite/join#${invitation}?app=cindydev`,
     ]) {
       const route = redirectSystemPath({ path, initial });
       expect(route).toBe(initial ? '/' : null);
@@ -53,6 +73,35 @@ describe('mobile native deep-link redirects', () => {
       expect(getPendingSharedTaskInvitationIntent()).toBeNull();
       clearChatInvite();
     }
+  });
+
+  // Unit regression: two ingress hosts for one share ID must keep one intent;
+  // the prior same-URL case did not distinguish invitation identity from its host.
+  it('keeps opaque share references outside router state and deduplicates the same share', () => {
+    const link = `https://share.example.test/chat-invite/${'s'.repeat(32)}`;
+    expect(redirectSystemPath({ path: link, initial: true })).toBe('/');
+    const target = getChatInviteIntent()!;
+    expect(target.link).toBe(link);
+    for (const path of [link, link.replace('share.example.test', 'share-cn.example.test')]) {
+      expect(redirectSystemPath({ path, initial: false })).toBeNull();
+      expect(getChatInviteIntent()).toBe(target);
+    }
+  });
+
+  it('keeps a resolved manual share as the same invitation when its original link opens again', () => {
+    const link = `https://share.example.test/chat-invite/${'s'.repeat(32)}`;
+    openManualChatInvite(); const id = getChatInviteIntent()!.id;
+    setManualChatInviteLink(id, link);
+    setManualChatInviteLink(id, `cindy://chat-invite/${invitation}`);
+    for (const path of [link, link.replace('share.example.test', 'share-cn.example.test')]) {
+      redirectSystemPath({ path, initial: false });
+      expect(getChatInviteIntent()?.hasOtherInvitation).toBe(false);
+    }
+    setManualChatInviteLink(id);
+    const other = `https://share.example.test/chat-invite/${'t'.repeat(32)}`;
+    setManualChatInviteLink(id, other); setManualChatInviteLink(id, `cindy://chat-invite/${shareInvitation}`);
+    redirectSystemPath({ path: link, initial: false });
+    expect(getChatInviteIntent()?.hasOtherInvitation).toBe(true);
   });
 
   it('shows the local format result without retaining malformed input or selecting its server', () => {
@@ -118,6 +167,16 @@ describe('mobile native deep-link redirects', () => {
     invalidateMobileAuthOwnerForSwitch();
     expect(getPendingSharedTaskInvitationIntent()).toBeNull();
   });
+  // Unit through Expo's cold/warm entry. A copied guest link must open the scoped task screen.
+  it('opens an already joined task from the copied link without creating an invitation', () => {
+    const peer = sharedTaskHostPeer('share', 'host');
+    const link = buildMobileSessionDeepLink('task', { deviceId: peer });
+    const expected = '/sessions/task?deviceId=' + encodeURIComponent(peer);
+    expect(redirectSystemPath({ path: link, initial: true })).toBe(expected);
+    expect(redirectSystemPath({ path: link.replace('cindy:/', ''), initial: false })).toBe(expected);
+    expect(getPendingSharedTaskInvitationIntent()).toBeNull();
+  });
+
   it('handles a warm path and expires an unclaimed invitation', () => {
     redirectSystemPath({ path: incoming.replace('cindy:/', ''), initial: false });
     expect(getPendingSharedTaskInvitationIntent()).not.toBeNull();

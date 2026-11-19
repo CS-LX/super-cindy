@@ -7,9 +7,16 @@ import type { ProviderView } from '@cindy/model-providers';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { DeviceLinkDeviceView } from '../../../shared/deviceLinkIpc';
-import type { ProviderGroupConfig, ProviderGroupMember } from '../../../shared/providerGroup';
+import { normalizeProviderGroupConfig, type ProviderGroupConfig, type ProviderGroupMember } from '../../../shared/providerGroup';
 import { createProviderGroupDirectory, type ProviderGroupDirectoryDeps } from '../directory';
 import { providerGroupCodexUsageSnapshot } from '../usage';
+import { readDeviceProviderViews } from '../../remote-agent/controller/deviceCatalog';
+import { createProviderGroupRouter } from '../router';
+
+// Isolate the catalog reader's local preference port; never read the test runner's owner profile.
+vi.mock('../../maker-host/model-disable-store.js', () => ({
+  readModelDisableOverrides: () => ({ disabledProviders: {}, disabledModels: {} }),
+}));
 
 const view = (id: string, name: string, patch: Partial<ProviderView> = {}): ProviderView => ({
   id,
@@ -71,6 +78,96 @@ function deps(overrides: Partial<ProviderGroupDirectoryDeps> = {}): ProviderGrou
 }
 
 describe('listCandidates', () => {
+  // Unit regression for provider-groups.md §3: use the real authorized catalog reader,
+  // directory, config serializer and router. Existing native:claude fixtures hid the bug.
+  // Minimum failure: two openai-sub connections on one host, with no auth.native field.
+  it.each(['device', 'share'] as const)('adds and routes two independent subscriptions from one %s host', async (kind) => {
+    const subscription = (id: string, name: string): ProviderView => view(id, name, {
+      auth: { method: 'oauth' }, subscriptionAccountPool: 'openai', remoteInvocationEnabled: true,
+      agents: ['codex'], models: { codex: [{ id: 'gpt-5.4', name: 'GPT', contextWindow: 128_000, efforts: [], defaultEffort: null }] },
+      routing: { codex: { upstream: 'https://example.com/codex', authStrategy: 'oauth-passthrough' } },
+    });
+    const accounts = [subscription('openai-sub-12345678', 'Codex A'), subscription('openai-sub-abcdef01', 'Codex B')];
+    const received = accounts.map((account, i) => share(`s${i}`, {
+      providerId: account.id, providerLabel: account.name, hostDeviceId: 'one-host',
+    }));
+    const readDeviceProviders = (id: string) => readDeviceProviderViews(async () => ({ ok: true, result: {
+      providers: kind === 'device' ? [...accounts,
+        { ...subscription('private', 'Private'), remoteInvocationEnabled: false },
+        { ...subscription('disabled', 'Disabled'), suspended: true },
+        { ...subscription('disconnected', 'Disconnected'), connected: false },
+        view('anthropic', 'OpenAI'),
+      ] : accounts.filter((account) => received.some((s) => `share:${s.shareId}` === id && s.providerId === account.id)),
+    } }), id);
+    expect((await readDeviceProviders(kind === 'device' ? 'one-host' : 'share:s0')).map((provider) => provider.id))
+      .toEqual(kind === 'device' ? [...accounts.map((account) => account.id), 'disabled', 'disconnected'] : [accounts[0].id]);
+    const directory = createProviderGroupDirectory(deps({
+      listLocalProviders: async () => [subscription('openai', 'OpenAI')],
+      listDevices: async () => kind === 'device' ? [device('one-host')] : [],
+      listReceivedShares: () => kind === 'share' ? received : [],
+      readDeviceProviders,
+    }));
+    const candidates = await directory.listCandidates('openai', null);
+    expect(candidates.map((c) => [c.agentDeviceId, c.providerId, c.providerName])).toEqual(accounts.map((account, i) => [
+      kind === 'device' ? 'one-host' : `share:s${i}`, account.id, account.name,
+    ]));
+    // Same normalization runs when saving and reading group settings; JSON is the persisted shape.
+    const config = normalizeProviderGroupConfig(JSON.parse(JSON.stringify({ strategy: 'round',
+      members: candidates.map((candidate) => ({ ...candidate, limit: 4, weight: 1, paused: false })),
+    })), 'openai')!;
+    expect(config.members.map((m) => m.key)).toEqual(candidates.map((c) => c.key));
+    expect(new Set(config.members.map((m) => m.key)).size).toBe(2);
+    expect((await directory.listCandidates('openai', { ...config, members: config.members.slice(0, 1) }))
+      .map((c) => c.blocked ?? null)).toEqual(['member', null]);
+    const router = createProviderGroupRouter({ directory, readGroup: () => config,
+      listBindings: () => ({}), isTurnRunning: () => false, now: () => 0, random: () => 0 });
+    const input = { providerId: 'openai', agentKind: 'codex' as const, model: 'gpt-5.4', localTask: true as const };
+    const first = await router.pick(input);
+    const second = await router.pick(input);
+    expect(first).toMatchObject({ kind: 'member', member: { key: candidates[0].key, providerId: accounts[0].id } });
+    expect(second).toMatchObject({ kind: 'member', member: { key: candidates[1].key, providerId: accounts[1].id } });
+    router.markCooling('openai', candidates[0].key, 60_000);
+    expect(await router.pick(input)).toMatchObject({ kind: 'member', member: { providerId: accounts[1].id } });
+    expect(router.coolingUntil('openai', candidates[1].key)).toBeNull();
+    accounts[1].name = 'Renamed Codex B';
+    directory.invalidate();
+    expect(await router.pick(input)).toMatchObject({ kind: 'member', member: { providerId: accounts[1].id } });
+    if (kind === 'share') received[1].status = 'paused';
+    else accounts[1].remoteInvocationEnabled = false;
+    directory.invalidate();
+    expect(await router.pick(input)).toMatchObject({ kind: 'unavailable' });
+    expect((await directory.listCandidates('openai', null)).map((c) => c.providerId)).toEqual([accounts[0].id]);
+  });
+
+  // 2026-11-17 field report, unit: a computer whose quick directory read was interrupted (fenced at
+  // the 2s snapshot fallback while its 3–7s read was in flight) was left out of the add-computer list
+  // on every attempt, with no trace. Real directory; one computer per row. Review findings: only an
+  // interrupted read is asked again, never a refusal, and never over a link the user just closed.
+  it.each([
+    ['asks an interrupted read again live', new Error('Metadata scope changed'), true, ['mini'], [false, true]],
+    ['treats a refusal as final', new Error('[REMOTE_AGENT_PROVIDER_NOT_ALLOWED] not offered'), true, [], [false]],
+    ['does not reopen a link closed meanwhile', new Error('Metadata scope changed'), false, [], [false]],
+  ] as const)('%s before leaving a computer out of the add-computer list', async (_name, quickError, linkStaysOpen, listed, expectedReads) => {
+    const reads: boolean[] = [];
+    let closeEpoch = 0;
+    const failed = vi.fn();
+    const directory = createProviderGroupDirectory(deps({
+      listDevices: async () => [device('mini')],
+      listReceivedShares: () => [],
+      readDeviceProviders: async (_id, options) => {
+        reads.push(options?.live === true);
+        if (options?.live) return [view('anthropic-1a2b3c4d', 'Claude')];
+        if (!linkStaysOpen) closeEpoch += 1;
+        throw quickError;
+      },
+      captureLinkCloseEpoch: () => { const seen = closeEpoch; return () => closeEpoch === seen; },
+      onCandidateReadFailed: failed,
+    }));
+    expect((await directory.listCandidates('anthropic', null)).map((c) => c.agentDeviceId)).toEqual(listed);
+    expect(reads).toEqual(expectedReads);
+    expect(failed).toHaveBeenCalledTimes(listed.length ? 0 : 1);
+  });
+
   it('lists same-account computers and received shares offering the same provider', async () => {
     const directory = createProviderGroupDirectory(deps());
     const candidates = await directory.listCandidates('anthropic', null);
@@ -138,7 +235,7 @@ describe('resolveMembers', () => {
   // Unit/privacy: OpenAI quota reads are confined to usable same-account subscriptions.
   // The Claude-only fixture cannot detect querying API connections or a borrowed OpenAI share.
   it('reads OpenAI quota only for usable local/same-account subscriptions, never shares or API connections', async () => {
-    const readCodexUsage = vi.fn(async (_member: ProviderGroupMember) => providerGroupCodexUsageSnapshot({ updatedAt: 1_000, primary: { usedPercent: 25 } }));
+    const readCodexUsage = vi.fn<NonNullable<ProviderGroupDirectoryDeps['readCodexUsage']>>(async () => providerGroupCodexUsageSnapshot({ updatedAt: 1_000, primary: { usedPercent: 25 } }));
     const providers = [view('openai', 'OpenAI', { auth: { method: 'oauth', native: 'codex' } }),
       view('openai-api', 'OpenAI API', { auth: { method: 'apiKey' } }),
       view('openai-disabled', 'OpenAI', { suspended: true, auth: { method: 'oauth', native: 'codex' } })];
@@ -311,6 +408,88 @@ describe('resolveMembers', () => {
     directory.invalidate('mini');
     await directory.resolveMembers('anthropic', config);
     expect(d.readDeviceProviders).toHaveBeenCalledTimes(2);
+  });
+
+  it('reports fresh vs cached reads and a stale reply separately', async () => {
+    const readDeviceProviderCatalog = vi.fn(async () => ({ views: [view('anthropic-1a2b3c4d', 'Claude')], stale: true }));
+    const directory = createProviderGroupDirectory(deps({ readDeviceProviderCatalog }));
+    await expect(directory.readDeviceCatalogState!('mini')).resolves.toMatchObject({ freshRead: true, stale: true });
+    await expect(directory.readDeviceCatalogState!('mini')).resolves.toMatchObject({ freshRead: false, stale: true });
+    expect(readDeviceProviderCatalog).toHaveBeenCalledTimes(1);
+    directory.invalidate('mini');
+    await expect(directory.readDeviceCatalogState!('mini')).resolves.toMatchObject({ freshRead: true, stale: true });
+    expect(readDeviceProviderCatalog).toHaveBeenCalledTimes(2);
+  });
+
+  it('deducts elapsed time from a cached source budget and expires on either clock', async () => {
+    let wall = 1_000, mono = 5_000, reads = 0;
+    const readDeviceProviderCatalog = vi.fn(async () => {
+      reads += 1;
+      return { views: [view('anthropic-1a2b3c4d', 'Claude')], stale: true, remainingMs: 60_000 };
+    });
+    const directory = createProviderGroupDirectory(deps({ readDeviceProviderCatalog, now: () => wall, mono: () => mono }));
+    await expect(directory.readDeviceCatalogState!('mini')).resolves.toMatchObject({
+      freshRead: true, stale: true, remainingMs: 60_000,
+    });
+    wall += 10_000; mono += 10_000;
+    await expect(directory.readDeviceCatalogState!('mini')).resolves.toMatchObject({
+      freshRead: false, stale: true, remainingMs: 50_000,
+    });
+    expect(reads).toBe(1);
+    mono += 50_001;
+    await expect(directory.readDeviceCatalogState!('mini')).resolves.toMatchObject({
+      freshRead: false, stale: true, remainingMs: 0,
+    });
+    expect(reads).toBe(1);
+  });
+
+  it('shares one in-flight read without resetting the budget for the joining caller', async () => {
+    let wall = 0, mono = 0, reads = 0, release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const readDeviceProviderCatalog = async () => {
+      reads += 1;
+      await gate;
+      return { views: [view('anthropic-1a2b3c4d', 'Claude')], stale: false, remainingMs: 30_000 };
+    };
+    const directory = createProviderGroupDirectory(deps({ readDeviceProviderCatalog, now: () => wall, mono: () => mono }));
+    const first = directory.readDeviceCatalogState!('mini');
+    const second = directory.readDeviceCatalogState!('mini');
+    wall = 5_000; mono = 5_000;
+    release();
+    await expect(first).resolves.toMatchObject({ freshRead: true, stale: false, remainingMs: 25_000 });
+    await expect(second).resolves.toMatchObject({ freshRead: false, stale: false, remainingMs: 25_000 });
+    expect(reads).toBe(1);
+  });
+
+  it('latches an observed expiry so a wall-clock rollback cannot revive the cached source', async () => {
+    let wall = 0, reads = 0;
+    const mono = 0;
+    const readDeviceProviderCatalog = vi.fn(async (id: string) => {
+      reads += 1;
+      return { views: [view(id === 'mini' ? 'anthropic-1a2b3c4d' : 'deepseek', 'Provider')],
+        stale: false, remainingMs: 1_000 };
+    });
+    const directory = createProviderGroupDirectory(deps({ readDeviceProviderCatalog, now: () => wall, mono: () => mono }));
+    await expect(directory.readDeviceCatalogState!('mini')).resolves.toMatchObject({
+      freshRead: true, stale: false, remainingMs: 1_000,
+    });
+    wall = 1_001;
+    await expect(directory.readDeviceCatalogState!('mini')).resolves.toMatchObject({
+      freshRead: false, stale: true, remainingMs: 0,
+    });
+    wall = 0;
+    await expect(directory.readDeviceCatalogState!('mini')).resolves.toMatchObject({
+      freshRead: false, stale: true, remainingMs: 0,
+    });
+    expect(reads).toBe(1);
+    await expect(directory.readDeviceCatalogState!('other')).resolves.toMatchObject({
+      freshRead: true, stale: false, remainingMs: 1_000,
+    });
+    directory.invalidate('mini');
+    await expect(directory.readDeviceCatalogState!('mini')).resolves.toMatchObject({
+      freshRead: true, stale: false, remainingMs: 1_000,
+    });
+    expect(reads).toBe(3);
   });
 });
 

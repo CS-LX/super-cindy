@@ -25,8 +25,11 @@ export function projectScheduleSidebarIndex(
     if (activeFailures.has(run.runId)) {
       const candidate = {
         runId: run.runId, firedAt: run.firedAt ?? 0, scheduleId: run.scheduleId,
+        finishedAt: run.finishedAt,
+        nextFireAt: run.scheduleStatus === 'active' ? run.nextFireAt : undefined,
         failureKind: run.failureKind,
         errorMsg: run.status === 'failed' ? run.errorMsg : undefined,
+        missingPlugin: run.status === 'failed' ? run.missingPlugin : undefined,
       };
       if (!latestFailedRun || compareFailedScheduleRuns(candidate, latestFailedRun) > 0)
         latestFailedRun = candidate;

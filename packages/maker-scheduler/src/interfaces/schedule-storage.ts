@@ -1,4 +1,4 @@
-import type { Schedule, ScheduleRun, ListFilter } from '../types.js';
+import type { Schedule, ScheduleRun, ScheduleClosureFailure, ListFilter } from '../types.js';
 
 export interface ScheduleStorage {
   list(filter?: ListFilter): Promise<Schedule[]>;
@@ -8,9 +8,10 @@ export interface ScheduleStorage {
   /** Numeric lastFinishedAt writes atomically retain the greater completion time.
    * With expected, atomically match the snapshot's timing and scheduling
    * fields (lastFiredAt, nextFireAt, status, recurring, manual, cronExpr,
-   * timezone, intervalMs); return null on mismatch without applying the patch. */
+   * timezone, intervalMs, expireAt); return null on mismatch without applying the patch. */
   update(id: string, patch: Partial<Schedule>, expected?: Schedule): Promise<Schedule | null>;
   delete(id: string): Promise<void>;
+  latestClosureFailure?(scheduleId: string, sessionId: string): Promise<ScheduleClosureFailure | undefined>;
 
   /**
    * 跨进程"认领"一次到点触发(多个 app 实例——如 dev / release 双开——共用同一

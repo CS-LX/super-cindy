@@ -3,6 +3,12 @@
 > 权威入口：先读本页，再按问题打开专题。Server 为独立仓库，文档不代表已部署。
 > 心动部署的 AI Gateway（模型路由与计费服务端）源码在内部仓库 `xindong/ai-gateway` 与
 > `xindong/litellm`（2026-10-28 确认）；排查网关行为先查这两处。
+> **读取时机**：首次理解模型配置架构，新增模型／供应商，更新模型窗口／价格／推理档位／默认值／本地推荐，
+> 或排查目录下发与显示错误之前
+> **适用路径**：`packages/model-providers/**`、`tools/model-catalog/**`、
+> `apps/desktop/src/main/maker-host/**/model-catalog-override-store*`、
+> `apps/desktop/src/main/maker-host/{active-catalog,subscriptionPoolCatalog,provider-model-auto-refresh}.ts`、
+> `apps/desktop/src/main/maker-host/model-discovery/**`
 
 ## 本地模型说明的客户端译文
 
@@ -224,13 +230,40 @@ bridge 共用这一顺序；OpenAI 订阅的 Pi 以公共 Pi 目录为基础，�
 清单补入新型号并排序，能力按 Pi 协议适配，沿用 Registry 条目的 `defaultEnabled: false`；
 用户本地 `sortOrder` patch 仍最高。
 
+订阅账号池按 owner、账号 ID 和官方 CLI 目录分别发现模型，再按供应商内部 ID 聚合；供应商名称
+仅用于显示，改名、同名或名字包含 Claude/OpenAI 都不改变发现、认证和路由。独立 Claude 供应商
+不再依赖内置 Anthropic 默认账号登录，Codex 的独立供应商手动刷新同样按实际 ID 处理。
+账号池的 Claude 发现结果保存在当前 owner 的内存中，重启后重新读取；旧版内置单账号磁盘缓存
+不记成其它账号的新发现结果。已登录账号尚无可用实报时，继续使用该供应商升级前的目录元数据，
+避免冷启动或 SDK 失败把远程恢复名单清空；这不跳过登录、模型停用或分享授权检查。
+暂停、移除、重新登录与 owner 切换使相应结果失效，失败只保留
+同一登录已成功返回的模型；SDK 空回复沿用旧捕获入口的失败语义，不清空成功清单。
+普通供应商视图与完整路由目录都保留原有 Claude 元数据，只按供应商 ID 合入该账号的新发现与能力更新。
+已有任务的本机发送、手机显示、供应商组续用和分享授权也会读取普通视图，不能把它裁成 SDK 当前返回的子集。
+目录元数据不代替账号准入；SDK 部分回复仍合入明确返回的 effort / Fast 能力，缺席字段保留原值。
+Claude 的模型发现不新增启动、续聊、换号或切模型的准入门槛，仍由原生 CLI 处理历史型号与别名；
+原有账号绑定、登录与权限校验保持生效。普通供应商列表读取在后台发现，不等待 Claude SDK，
+只有明确请求等待发现的读取与手动刷新才等待结果。
+实现与回归见 `subscription-accounts/runtime.ts`、`agent.ts`、`maker-host/subscriptionPoolCatalog.ts`
+及其现有测试。手动刷新使用供应商 ID，后台启动／前台恢复按已连接的同类供应商触发，不能只看内置来源。
+
 Claude 订阅没有 HTTP 清单接口，清单来自内置 Claude Code 的 SDK `supportedModels()`：会话启动时
 捕获；此外 maker 就绪、登录／认领 Claude 登录以及手动刷新时，用本机 CLI 起一个空闲 Query 只读
-清单（不发消息、不产生模型调用）。SDK 对每个系列的当前型号常只给简称（`opus` / `sonnet` /
+清单（不发消息、不产生模型调用）。SDK 提供 `resolvedModel` 时优先使用其中的真实 Claude ID；
+Claude Code 2.1.321 的说明已不含型号版本，不能只靠说明猜型号。旧 SDK 对每个系列的当前型号常只给简称（`opus` / `sonnet` /
 `default`）并把版本写在说明里（如 “Opus 5.5 · …”）；简称按说明拼出 `claude-<系列>-<主>-<次>`。
 Registry 尚未登记的新版本照样显示（资料用未知模型默认值，并记日志提示补登记），**绝不映射到
 相邻旧版本**；说明里读不出版本时才跳过。SDK 的 displayName 只有系列名（如 “Fable”）时不作为
 型号名称，改用 Registry 名称，Registry 未登记则按 ID 推导（`claude-fable-5-2` → “Fable 5.2”）。
+排查新型号缺失时，先核对 Cindy 实际使用的内置 CLI 版本，而不是 PATH 上的 `claude`；
+例如 Fable 5.2 从 Claude Code 2.1.321 起进入清单。还要核对实际子进程环境：
+`DISABLE_TELEMETRY` 不只关闭遥测，也关闭上游 feature-flag 获取，可能令同一内核返回旧清单。
+原生订阅会话及发现探针不默认注入该变量，保留 Claude 官方默认行为；用户显式设置仍原样传递，
+网关及远端路径继续默认禁用。错误上报和 OTEL 导出仍独立默认禁用。
+参见 [Claude Code 环境变量说明](https://code.claude.com/docs/en/env-vars)。
+`configure_model_provider` 的
+`rediscover` 与设置页手动刷新共用 `refreshBuiltinModels`，等待真实发现完成后再返回目录，
+不能走已无发现实现的旧 hook 并报告成功。CLI 清单可见、选择器可见和真实推理成功须分别验证。
 xAI 保留 Registry 声明顺序，XD 以 Gateway `/models` 为准，均不受此规则影响。
 第三方 API key 连接（MiMo、Kimi Code 等预设及自定义端点）没有 sortOrder，按连接配置里的
 顺序排：首次添加用接口返回的顺序；之后刷新发现的新型号排在已有型号之前（保持接口返回的
@@ -239,7 +272,7 @@ xAI 保留 Registry 声明顺序，XD 以 Gateway `/models` 为准，均不受�
 来源内的默认推荐可由服务端按区域下发的 `newSessionDefault` 指定；公共 Registry 的
 同名字段不进入活动目录。未标记时取排序第一的默认可见模型，即账号返回的第一个可见模型。
 
-未手动选择模型时，客户端出厂来源顺序为 Codex 订阅 GPT-6.1 Sol（Codex）、
+未手动选择模型时，客户端出厂来源顺序为 Codex 订阅 GPT-6.2 Sol（Codex）、
 Claude 订阅 Opus 5.5（Claude Code）、服务端指定的 Cindy Auto（Pi），最后保留 xAI 回退。
 订阅按认证身份识别独立账号，始终保留实际账号 ID。Cindy Auto 由服务端决定：在 Cindy AI 与
 企业号池供应商（`source: organization`）中跟随被标为 Pi 新任务默认的 Auto 系列模型
@@ -437,6 +470,11 @@ app-server 的完整 `model/list`，不使用控制端 OpenAI 登录或网关目
 新任务从远端清单解析默认模型及推理强度／Fast；已有任务保留原模型和历史，由用户改选。
 设置页及普通 SSH 创建入口不继承控制端草稿的模型、推理强度或 Fast 记忆，即使型号同名；
 采用远端默认模型及推荐推理强度，Fast 初始关闭，创建后可在任务内手动改选。
+SSH 项目的新任务草稿允许在发送前改选，模型、档位与 Fast 只保留在按主机和账号隔离的
+本次草稿状态中。草稿校准、模型选择器与发送共用同一份远端清单及重试入口；Codex 清单
+只替换 Codex 行，Claude Code / Pi 沿用其既有本机目录与 SSH 准入规则。
+当前引擎不是 Codex 时，打开模型选择器才按需读取 Codex 清单。实现见
+`NewMakerDraftRoute.tsx`、`useSshCodexDraftSelection.ts`，回归见 `sshCodexModels.test.tsx`。
 原样恢复只有在持久化的主机、原生线程、引擎、模型及来源均匹配时才豁免新建目录校验，
 允许恢复后来被隐藏的原模型；模型是否仍可推理由远端 Codex 决定。SSH 模型及档位选择不写入控制端本地模型偏好。
 首次连接成功会补偿挂载时因尚未就绪而失败的目录读取；重复 ready 快照不清空已成功读取的目录。
@@ -470,6 +508,7 @@ app-server 的完整 `model/list`，不使用控制端 OpenAI 登录或网关目
 每组 `prices` 沿用原价格结构与官方证据：币种、每百万 tokens 单价、缓存读/写及 1h 写入、
 标准/Fast 等变体、输入区间 `[minInputTokens, maxInputTokens)`、生效日期区间。
 缺字段保持未知，明确的 0 才表示零单价；缓存存储每小时费用不能写成缓存写入单价。
+客户端估价时按请求拆分缓存写入：上游报告 1h TTL 写入量（Anthropic `cache_creation.ephemeral_1h_input_tokens`）时这部分按 1h 写入价计；报价没有 1h 写入价（如 Gateway）时沿用缓存写入价。设置里的自定义缓存写入价按参考价的 1h/5m 倍率带动 1h 价。
 
 `resolveBaseModelReferencePrice` 按公共 ID/唯一 alias 读取，不依赖供应商名单。
 多市场/币种必须明确选择到唯一有效价格；无匹配或有歧义返回未知。

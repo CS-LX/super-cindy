@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InstalledGhost } from '../../../../shared/ghost.js';
 import type { ActiveAppSession } from '../../../appSessionState.js';
 import { CINDY_OFFICIAL_GHOST_TRUST } from '../../../cindy-brain/GhostManager.js';
+import { installedGhostStoragePart } from '../../../../shared/pluginIdentity.js';
 import { LOCAL_PROFILE_DATA_OWNER_ID } from '../../../profile/profileRegistryModel.js';
 import { resolveGithubAuthRecovery } from '../githubRecoveryHost.js';
 import type { AuthRecoveryRequest } from '../host.js';
@@ -11,6 +12,7 @@ import type { AuthRecoveryRequest } from '../host.js';
 const h = vi.hoisted(() => ({
   owner: 1, mode: 'cloud' as ActiveAppSession['mode'], dataOwnerId: 'test-owner' as string | null,
   boundary: false, ghost: null as InstalledGhost | null,
+  list: vi.fn(), find: vi.fn(),
   readGh: vi.fn<() => Promise<string | null>>(), readSecret: vi.fn(), fetch: vi.fn(),
 }));
 vi.mock('../../../appSessionState.js', () => ({
@@ -19,7 +21,7 @@ vi.mock('../../../appSessionState.js', () => ({
   isAppSessionBoundaryPending: () => h.boundary,
 }));
 vi.mock('../../../cindy-brain/index.js', () => ({
-  getGhostManager: () => ({ list: () => h.ghost ? [h.ghost] : [] }),
+  getGhostManager: () => ({ list: h.list, findInstalledInstance: h.find }),
   getGhostSetupAssessment: () => ({ state: 'ready' }),
   isGhostAvailableForActiveSession: () => true,
 }));
@@ -30,7 +32,7 @@ vi.mock('../../../localDb/ipc/sessions.js', () => ({
 vi.mock('../../../git-context/ghCliTokenSource.js', () => ({
   getSharedGhCliTokenSource: () => ({ readToken: h.readGh }),
 }));
-vi.mock('../../../maker-host/outbound-fetch.js', () => ({ outboundFetch: h.fetch }));
+vi.mock('../../../maker-host/outbound-fetch.desktop.js', () => ({ outboundFetch: h.fetch }));
 vi.mock('../../../secrets/providerSecretStore.js', () => ({ readGhostSecret: h.readSecret }));
 
 const request: AuthRecoveryRequest = {
@@ -50,12 +52,26 @@ beforeEach(() => {
     trust: { ...CINDY_OFFICIAL_GHOST_TRUST },
     approval: { state: 'approved', revision: '00000000-0000-4000-8000-000000000001' },
   } as InstalledGhost;
+  h.list.mockImplementation(() => h.ghost ? [h.ghost] : []);
+  h.find.mockImplementation((id: string) => h.list().find((candidate: InstalledGhost) => installedGhostStoragePart(candidate) === id));
   h.readGh.mockResolvedValue('synthetic-gh-token');
   h.readSecret.mockReturnValue('synthetic-pat');
   h.fetch.mockImplementation(async () => new Response(JSON.stringify({ login: 'test-user' }), { status: 200 }));
 });
 
 describe('GitHub recovery host wiring', () => {
+  it('uses one initial registry list while rechecking each candidate through the instance cache', async () => {
+    const candidates = Array.from({ length: 4 }, (_, index) => ({
+      ...h.ghost!, manifest: { ...h.ghost!.manifest, id: `github-helper-${index}` },
+      dir: `/tmp/github-helper-${index}`,
+    })) as InstalledGhost[];
+    h.list.mockReturnValue(candidates);
+    h.find.mockImplementation((id: string) => candidates.find(candidate => installedGhostStoragePart(candidate) === id));
+    const result = await resolveGithubAuthRecovery(request);
+    expect(result).toContain('CINDY_AUTH_ALTERNATIVE_AVAILABLE');
+    expect(h.list).toHaveBeenCalledOnce();
+    expect(h.find.mock.calls.length).toBeGreaterThan(0);
+  });
   it('uses the saved gh login and exposes only recovery guidance', async () => {
     const result = await resolveGithubAuthRecovery(request);
     expect(result).toContain('CINDY_AUTH_ALTERNATIVE_AVAILABLE');
@@ -78,8 +94,16 @@ describe('GitHub recovery host wiring', () => {
     }));
   });
 
-  it.each(['untrusted', 'unknown-contract', 'owner-boundary'])('does not read credentials for %s', async (reason) => {
-    if (reason === 'untrusted') h.ghost!.trust = undefined;
+  it('uses an approved local plugin with a different id and no official trust', async () => {
+    h.ghost!.manifest.id = 'github-helper';
+    h.ghost!.namespace = 'local';
+    h.ghost!.dir = '/tmp/_ns/local/github-helper';
+    h.ghost!.trust = undefined;
+    expect(await resolveGithubAuthRecovery(request)).toContain('"ghost_id":"github-helper","namespace":"local"');
+  });
+
+  it.each(['unapproved', 'unknown-contract', 'owner-boundary'])('does not read credentials for %s', async (reason) => {
+    if (reason === 'unapproved') h.ghost!.approval = { state: 'legacy-unapproved' };
     if (reason === 'unknown-contract') h.ghost!.manifest.network = undefined;
     if (reason === 'owner-boundary') h.boundary = true;
     expect(await resolveGithubAuthRecovery(request)).toBeNull();
@@ -102,14 +126,9 @@ describe('GitHub recovery host wiring', () => {
 
   // PR #6349: a successful /user probe must not redirect to an instance that
   // networkSlot rejects before reading either credential source.
-  it.each(['organization', 'pending', 'unconfirmed'] as const)('rejects %s instances before reading credentials', async (identity) => {
-    if (identity === 'organization') {
-      h.ghost!.namespace = 'acme';
-      h.ghost!.dir = '/tmp/_ns/acme/cindy-github';
-    } else {
-      h.ghost!.namespaceState = identity;
-      if (identity === 'pending') delete h.ghost!.namespace;
-    }
+  it.each(['pending', 'unconfirmed'] as const)('rejects %s instances before reading credentials', async (identity) => {
+    h.ghost!.namespaceState = identity;
+    if (identity === 'pending') delete h.ghost!.namespace;
     expect(await resolveGithubAuthRecovery(request)).toBeNull();
     expect(h.readGh).not.toHaveBeenCalled();
     expect(h.readSecret).not.toHaveBeenCalled();

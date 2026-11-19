@@ -1,7 +1,9 @@
+import type { ComposerSlashCommand } from '@cindy/maker-shared/composer-palette';
 import { pendingGhostCardFormDelivery } from '@cindy/maker-shared/ghost-card-form';
 import {
   tryMobilePeerFile,
   peerMediaUri,
+  peerMediaPlayback,
   releasePeerMedia,
 } from "./peerFileRegistry";
 import { withTransientRemoteRetry } from "./remoteRetry";
@@ -39,6 +41,8 @@ import {
 import {
   CONTROLLER_CAPABILITY_PROVIDER_LOGO_KINDS_V2,
   ORCA_EXECUTION_DEVICES_CHANNEL,
+  ORCA_WORKER_ROLES_APPLY,
+  ORCA_WORKER_ROLES_GET,
   isSharedTaskPeer,
   readDeviceFile,
   FILE_PEER_MAX_BYTES,
@@ -47,13 +51,14 @@ import {
   assertFileReadActive,
   validFileVersion,
   type DeviceFileResult,
+  type OrcaWorkerRolesMutation,
 } from "@cindy/device-link";
 import { errorText, mediaExtOf, nextFileTrace } from "@/debug/fileDiagnostics";
 import { mobileDebugLog } from "@/debug/mobileDebugLog";
 import type {
   HistoryViewPage,
   HistoryDetailPage,
-  HistoryWorkSummary,
+  HistoryWorkReference,
 } from "@cindy/maker-shared/message-window";
 import type {
   MobileGoalLimitsInput,
@@ -150,20 +155,7 @@ export const SUBSCRIPTION_USAGE_CHANNELS = {
   xai: "maker:usage:xai-subscription",
 } as const satisfies Record<SubscriptionUsageKind, string>;
 
-export type MobileSlashCommand =
-  | { kind: "agent-builtin"; name: string; description: string }
-  | {
-      kind: "agent-skill";
-      name: string;
-      description?: string;
-      source: "user" | "skill";
-      path?: string;
-      scope?: string;
-      enabled?: boolean;
-    }
-  // desktop 自有命令(被控端 main 的 DesktopCommandRegistry,如 /learn):
-  // 由控制端按名字分流执行,不转发给 agent。
-  | { kind: "desktop"; name: string; description: string };
+export type MobileSlashCommand = ComposerSlashCommand;
 
 export interface MobileAgentCommandListResult {
   success: boolean;
@@ -560,12 +552,12 @@ export interface MobileMakerTransport {
   ): Promise<HistoryViewPage<RemoteMessage>>;
   readWorkDetails(
     sessionId: string,
-    ref: HistoryWorkSummary,
+    ref: HistoryWorkReference,
     after?: string,
   ): Promise<HistoryDetailPage<RemoteMessage>>;
   setHistoryExpanded(
     sessionId: string,
-    refs: readonly HistoryWorkSummary[],
+    refs: readonly HistoryWorkReference[],
   ): Promise<void>;
   aroundMessages(
     sessionId: string,
@@ -792,6 +784,12 @@ export interface MobileMakerTransport {
     acknowledgeDone(leadSessionId: string, workerId: string): Promise<unknown>;
     archiveWorker(leadSessionId: string, workerId: string): Promise<unknown>;
     getCollaborationSettings(): Promise<unknown>;
+    /**
+     * 创建 Worker 的角色清单与每个角色记的任务、权限、模型：只存在任务所在的电脑上，手机不留副本。
+     * 旧电脑没有这两个通道(CHANNEL_NOT_ALLOWED)，调用方按「只有内置角色、不记忆」处理。
+     */
+    getWorkerRoles(): Promise<unknown>;
+    applyWorkerRoles(mutation: OrcaWorkerRolesMutation): Promise<unknown>;
   };
   /**
    * 会话未读已读回执:手机端真实展示会话内容后,清掉被控端该会话的未读态
@@ -913,7 +911,7 @@ export interface MobileMakerTransport {
     clearSession(sessionId: string): Promise<InputProjection>;
   };
   fs: {
-    listDir(path: string): Promise<RemoteDirectoryListResult>;
+    listDir(path: string, canonicalDirectory?: boolean): Promise<RemoteDirectoryListResult>;
     statPath(path: string): Promise<RemotePathStatResult>;
     mkdirP(path: string): Promise<{ resolvedPath: string }>;
     readTextFilePreview(path: string, options?: { allowFileTransfer?: boolean; signal?: AbortSignal }): Promise<RemoteTextFilePreviewResult>;
@@ -1020,7 +1018,7 @@ export interface MobileOrcaCreateWorkerResult {
 }
 
 export type SessionMetaPatch = Partial<
-  Pick<RemoteSession, "status" | "title" | "pinnedAt">
+  Pick<RemoteSession, "status" | "title" | "pinnedAt" | "snoozedUntil">
 >;
 
 export const MOBILE_MAKER_CHANNELS = MOBILE_REMOTE_INVOKE_CHANNELS;
@@ -1162,6 +1160,10 @@ export function createMobileMakerTransport({
             retain: async (result) => { await opts?.retainBackground?.(withDownload(result), fileIsCurrent); },
           },
           stream,
+          peerStream: opts?.playback && !isSharedTaskPeer(deviceId) ? async metadata => {
+            const { openPeerMediaStream } = await import("./peerMediaStream");
+            return openPeerMediaStream(deviceId, url, metadata, fileIsCurrent, opts?.signal);
+          } : undefined,
           inline: () => fetch(true),
           revalidate: () => fetch(true, true),
           inlineCache: opts?.thumbnail ? undefined : {
@@ -1181,6 +1183,8 @@ export function createMobileMakerTransport({
           peerResultIsTransient: true,
           isCurrent,
           discard: (result) => {
+            const playback = peerMediaPlayback(result);
+            if (playback) { void playback.close(); return; }
             const uri = peerMediaUri(result);
             if (uri) releasePeerMedia(uri);
             else if (
@@ -1495,6 +1499,8 @@ export function createMobileMakerTransport({
       archiveWorker: (leadSessionId, workerId) =>
         call("maker:worker:archive", [{ leadSessionId, workerId }]),
       getCollaborationSettings: () => call("maker:collaboration-settings:get"),
+      getWorkerRoles: () => call(ORCA_WORKER_ROLES_GET),
+      applyWorkerRoles: (mutation) => call(ORCA_WORKER_ROLES_APPLY, [mutation]),
     },
     clearSessionAttention: (sessionId, intent) =>
       call("notification:clear-session-attention", [sessionId, intent]),
@@ -1599,7 +1605,7 @@ export function createMobileMakerTransport({
         call("maker:input:clear-session", [sessionId]),
     },
     fs: {
-      listDir: (path) => call("fs:list-dir", [{ path }]),
+      listDir: (path, canonicalDirectory) => call("fs:list-dir", [canonicalDirectory ? { path, canonicalDirectory } : { path }]),
       statPath: (path) => call("fs:stat-path", [{ path }]),
       mkdirP: (path) => call("fs:mkdir-p", [{ path }]),
       readTextFilePreview: (filePath, options) =>

@@ -8,7 +8,7 @@
 import type { AgentKind } from '@cindy/maker-core';
 
 import { dbToMakerAgentKind } from '../../shared/agentKindConversion.js';
-import { getResolvedMainLocale } from '../i18n.js';
+import { getResolvedMainLocale } from '../i18n.desktop.js';
 import { getMaker } from '../maker-host/index.js';
 import { validateTitleOutput } from '../maker-host/title-output-validation.js';
 import { requestUtilityText, type UtilityTextRequestOptions } from '../utility-model/oneShotCandidates.js';
@@ -256,6 +256,7 @@ export async function generatePromptPrediction(
   const modelsSnapshot = JSON.stringify(readAuxiliaryModelSettings().models);
 
   const requestOptions: UtilityTextRequestOptions = {
+    source: 'prompt-prediction', sessionId: params.sessionId,
     maxTokens: 96,
     timeoutMs: 12_000,
     disableReasoning: true,
