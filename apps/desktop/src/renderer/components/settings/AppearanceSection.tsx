@@ -411,7 +411,7 @@ export function AppearanceSection() {
     (family: ThemeFamily) =>
       isLocalThemeId(family.id)
         ? `${family.name} ${t('settings.appearance.localBadge')}`
-        : family.name,
+        : family.id === 'minecraft' ? t('settings.appearance.minecraftTheme') : family.name,
     [t],
   );
 

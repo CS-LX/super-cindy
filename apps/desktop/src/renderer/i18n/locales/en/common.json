@@ -2391,7 +2391,8 @@
         "resetFailed": "Could not restore the panel layout.",
         "saved": "Panel position saved. Restore the default layout in Settings → Appearance.",
         "saveFailed": "Could not save panel positions."
-      }
+      },
+      "minecraftTheme": "Minecraft"
     },
     "notifications": {
       "title": "Notifications",

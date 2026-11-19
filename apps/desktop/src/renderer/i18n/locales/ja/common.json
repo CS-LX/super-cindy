@@ -2361,7 +2361,8 @@
         "resetFailed": "パネル配置を復元できませんでした。",
         "saved": "パネル位置を保存しました。［設定 → 外観］で初期レイアウトに戻せます。",
         "saveFailed": "パネルの位置を保存できませんでした。"
-      }
+      },
+      "minecraftTheme": "Minecraft"
     },
     "notifications": {
       "title": "通知",

@@ -2429,7 +2429,8 @@
         "resetFailed": "Não foi possível restaurar o layout dos painéis.",
         "saved": "Posição do painel salva. Restaure o layout padrão em Configurações → Aparência.",
         "saveFailed": "Não foi possível salvar as posições dos painéis."
-      }
+      },
+      "minecraftTheme": "Minecraft"
     },
     "notifications": {
       "title": "Notificações",

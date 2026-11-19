@@ -113,6 +113,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       type={type}
       disabled={disabled || (loading && !allowWhileLoading)}
       aria-busy={loading || undefined}
+      data-button-tone={tone}
       data-press-feedback={pressFeedback && !loading ? undefined : 'none'}
       className={cn(
         'cindy-button cindy-button-frame inline-flex shrink-0 items-center justify-center gap-1.5 rounded-full border border-transparent px-6 text-13 font-medium transition-colors',

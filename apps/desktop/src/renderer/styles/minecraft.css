@@ -1,0 +1,205 @@
+/* Owner-approved opt-in skin (2026-11-19). All painted frames below use the
+   original game's PNGs and mcmeta nine-slice rules, prepared locally. There are
+   no recreated textures. These selectors cannot change any other theme. */
+html[data-theme='minecraft'] {
+  --app-font-ui-default: 'Minecraft Game Latin', 'Minecraft Game Unicode', sans-serif;
+  --mc-text-shadow: 1px 1px 0 color-mix(in srgb, currentColor 25%, var(--border-default));
+  --radius: 0px;
+}
+
+html[data-theme='minecraft'] body {
+  font-family: var(--app-font-ui, var(--app-font-ui-default));
+  text-shadow: var(--mc-text-shadow);
+  -webkit-font-smoothing: auto;
+  font-synthesis: none;
+}
+
+/* Keep code/terminal font preferences and intrinsic images intact. */
+html[data-theme='minecraft'] :is(button, input, textarea, select, [contenteditable='true']):not(.font-mono):not(.cm-editor *):not(.xterm *) {
+  font-family: var(--app-font-ui, var(--app-font-ui-default));
+  text-shadow: var(--mc-text-shadow);
+  border-radius: 0;
+}
+
+html[data-theme='minecraft'] :is(.font-mono, .cm-editor, .xterm) {
+  text-shadow: none;
+}
+
+html[data-theme='minecraft'] :is(
+  [class~='rounded-full'], [class~='rounded-xl'], [class~='rounded-lg'],
+  [class~='rounded-md'], [class~='rounded-sm'], [class~='rounded-2xl'],
+  [role='dialog'], [role='menu'], [role='listbox'], .modal-panel
+):not(img):not(video):not(.animate-spin) {
+  border-radius: 0;
+}
+
+/* Standard filled buttons, including icon-only filled actions and Select. The
+   frame is painted on the existing pseudo layer, so hitboxes/layout do not move. */
+html[data-theme='minecraft'] .cindy-button:not([data-button-tone='quiet']):not([data-button-tone='danger']) {
+  color: var(--text-primary);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+html[data-theme='minecraft'] .cindy-button:not([data-button-tone='quiet']):not([data-button-tone='danger'])::before {
+  inset: -1px;
+  border: 3px solid transparent;
+  border-image: var(--mc-button-image) var(--mc-button-slice) fill / 3px / 0 stretch;
+  background: transparent;
+  image-rendering: pixelated;
+  transition: none;
+}
+
+html[data-theme='minecraft'] .cindy-button:not([data-button-tone='quiet']):not([data-button-tone='danger']):enabled:not([aria-disabled='true']):is(:hover, :focus-visible, [data-state='open'])::before {
+  border-image-source: var(--mc-button-hover-image);
+}
+
+html[data-theme='minecraft'] .cindy-button:not([data-button-tone='quiet']):not([data-button-tone='danger']):is(:disabled, [aria-disabled='true'])::before {
+  border-image: var(--mc-button-disabled-image) var(--mc-button-disabled-slice) fill / 1px / 0 stretch;
+}
+
+html[data-theme='minecraft'] .cindy-button:is(:disabled, [aria-disabled='true']) {
+  color: var(--text-disabled);
+}
+
+html[data-theme='minecraft'] .cindy-button[data-button-tone^='danger']:enabled {
+  color: var(--text-danger);
+}
+
+/* Bare icon buttons keep their own glyphs and semantic colours. In particular,
+   hover must not create the old pill background or a raised Minecraft button. */
+html[data-theme='minecraft'] .cindy-button-frame:not(.cindy-button)::before,
+html[data-theme='minecraft'] .cindy-button:is([data-button-tone='quiet'], [data-button-tone='danger'])::before {
+  border: 0;
+  border-image: none;
+  background: transparent;
+  box-shadow: none;
+  transition: none;
+}
+
+html[data-theme='minecraft'] button:not(.cindy-button):not([role]):is([class~='bg-transparent'], :has(> svg:only-child):not([class^='bg-']):not([class*=' bg-'])) {
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Existing painted buttons outside Button (composer send/stop, compact action
+   chips) receive the same original sprite. Matching static background classes
+   deliberately excludes hover:bg-* on otherwise transparent icon buttons. */
+html[data-theme='minecraft'] button:not(.cindy-button):not([class~='bg-transparent']):not([role='switch']):not([role='tab']):not([role='radio']):not([role='checkbox']):is([class^='bg-'], [class*=' bg-']) {
+  border: 1px solid transparent;
+  border-image: var(--mc-button-image) var(--mc-button-slice) fill / 3px / 0 stretch;
+  image-rendering: pixelated;
+  color: var(--text-primary);
+  box-shadow: none;
+}
+
+html[data-theme='minecraft'] button:not(.cindy-button):not([class~='bg-transparent']):not([role]):is([class^='bg-'], [class*=' bg-']):enabled:is(:hover, :focus-visible) {
+  border-image-source: var(--mc-button-hover-image);
+}
+
+/* Containers use Minecraft's original popup panel, which itself is nine-sliced.
+   No synthetic bevels, gradients or drop shadows are used. */
+html[data-theme='minecraft'] :is(
+  [data-appearance-surface='panel'], [role='dialog'], [role='menu'], [role='listbox'],
+  .modal-panel, [data-radix-popper-content-wrapper] > [data-state],
+  [class~='bg-[var(--settings-theme-card-bg)]']
+) {
+  border: 1px solid transparent;
+  border-image: var(--mc-panel-image) var(--mc-panel-slice) fill / 6px / 0 stretch;
+  background-color: var(--surface-elevated);
+  box-shadow: none;
+  image-rendering: pixelated;
+  backdrop-filter: none;
+}
+
+html[data-theme='minecraft'] :is([role='menuitem'], [role='option'], [role='menuitemcheckbox'], [role='menuitemradio']):is(:hover, :focus-visible, [data-highlighted]) {
+  background-color: var(--surface-hover);
+  outline-color: var(--text-primary);
+}
+
+html[data-theme='minecraft'] :is(input:not([type='checkbox']):not([type='radio']):not([type='range']), textarea) {
+  border: 1px solid transparent;
+  border-image: var(--mc-field-image) var(--mc-field-slice) fill / 1px / 0 stretch;
+  background: var(--surface-on-card);
+  image-rendering: pixelated;
+  box-shadow: none;
+}
+
+html[data-theme='minecraft'] :is(input, textarea):focus-visible {
+  border-image-source: var(--mc-field-focus-image);
+}
+
+/* Native checkboxes keep their input, focus and indeterminate semantics. */
+:where(html[data-theme='minecraft'] input[type='checkbox']) {
+  inline-size: 20px;
+  block-size: 20px;
+  flex-shrink: 0;
+}
+html[data-theme='minecraft'] input[type='checkbox'] {
+  appearance: none;
+  background: var(--mc-checkbox-image) center / 100% 100% no-repeat;
+  image-rendering: pixelated;
+}
+html[data-theme='minecraft'] input[type='checkbox']:checked {
+  background-image: var(--mc-checkbox-on-image);
+}
+html[data-theme='minecraft'] input[type='checkbox']:enabled:is(:hover, :focus-visible) {
+  background-image: var(--mc-checkbox-hover-image);
+}
+html[data-theme='minecraft'] input[type='checkbox']:checked:enabled:is(:hover, :focus-visible) {
+  background-image: var(--mc-checkbox-on-hover-image);
+}
+html[data-theme='minecraft'] input[type='checkbox']:indeterminate {
+  appearance: auto;
+}
+
+html[data-theme='minecraft'] :is(.cindy-slider-track, .cindy-switch) {
+  border-radius: 0;
+  border: 1px solid transparent;
+  border-image: var(--mc-slider-image) var(--mc-slider-slice) fill / 1px / 0 stretch;
+  image-rendering: pixelated;
+  box-shadow: none;
+}
+html[data-theme='minecraft'] .cindy-slider-track { height: 12px; }
+html[data-theme='minecraft'] .cindy-slider-fill { background: transparent; }
+html[data-theme='minecraft'] :is(.cindy-slider-thumb, .cindy-switch-thumb) {
+  border: 1px solid transparent;
+  border-image: var(--mc-slider-handle-image) var(--mc-slider-handle-slice) fill / 2px / 0 stretch;
+  border-radius: 0;
+  image-rendering: pixelated;
+  box-shadow: none;
+}
+html[data-theme='minecraft'] :is(.cindy-slider-thumb, .cindy-switch-thumb):is(:hover, :focus-visible) {
+  border-image-source: var(--mc-slider-handle-hover-image);
+}
+
+html[data-theme='minecraft'] :is(button, [role='button'], [role='tab']):focus-visible {
+  outline: 1px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+html[data-theme='minecraft'] ::-webkit-scrollbar-thumb {
+  border-radius: 0;
+  border: 1px solid transparent;
+  border-image: var(--mc-scroller-image) var(--mc-scroller-slice) fill / 1px / 0 stretch;
+}
+
+/* The composer paints its filled face on a child, not on the button itself. */
+html[data-theme='minecraft'] :is(.composer-send-face, .composer-send[data-companion='true'] > span[class~='inset-0']) {
+  border: 1px solid transparent;
+  border-image: var(--mc-button-image) var(--mc-button-slice) fill / 3px / 0 stretch;
+  border-radius: 0;
+  background: transparent;
+  image-rendering: pixelated;
+}
+html[data-theme='minecraft'] .composer-send:enabled:is(:hover, :focus-visible) :is(.composer-send-face, span[class~='inset-0']) {
+  border-image-source: var(--mc-button-hover-image);
+  background: transparent;
+}
+html[data-theme='minecraft'] .composer-send:disabled :is(.composer-send-face, span[class~='inset-0']) {
+  border-image: var(--mc-button-disabled-image) var(--mc-button-disabled-slice) fill / 1px / 0 stretch;
+}
+html[data-theme='minecraft'] :is(.composer-send-ring, .composer-send-beam) {
+  border-radius: 0;
+}

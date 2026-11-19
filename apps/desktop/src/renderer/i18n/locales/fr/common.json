@@ -2429,7 +2429,8 @@
         "resetFailed": "Impossible de rétablir la disposition des panneaux.",
         "saved": "Position du panneau enregistrée. Rétablissez la disposition par défaut dans Paramètres → Apparence.",
         "saveFailed": "Impossible d'enregistrer les positions des panneaux."
-      }
+      },
+      "minecraftTheme": "Minecraft"
     },
     "notifications": {
       "title": "Notifications",

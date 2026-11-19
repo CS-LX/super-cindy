@@ -2361,7 +2361,8 @@
         "resetFailed": "패널 레이아웃을 복원하지 못했습니다.",
         "saved": "패널 위치를 저장했습니다. 설정 → 외관에서 기본 레이아웃으로 복원할 수 있습니다.",
         "saveFailed": "패널 위치를 저장하지 못했습니다."
-      }
+      },
+      "minecraftTheme": "Minecraft"
     },
     "notifications": {
       "title": "알림",

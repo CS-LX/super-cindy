@@ -9,6 +9,8 @@ import { oneDarkPro } from './builtin/one-dark-pro';
 import { solarizedLight } from './builtin/solarized-light';
 import { cindyDark } from './builtin/cindy-dark';
 import { cindyLight } from './builtin/cindy-light';
+import { minecraft } from './builtin/minecraft';
+import { hasMinecraftAssets } from './minecraft-assets';
 import { LOCAL_THEME_SUFFIX } from '../../shared/local-themes';
 import { getLocalThemes } from './local-themes';
 import type { Theme, ThemeType } from './types';
@@ -37,6 +39,8 @@ const BUILTIN_FAMILIES: ThemeFamily[] = [
     dark: cindyDark,
   },
   { id: 'default', name: 'Classic', light: defaultLight, dark: defaultDark },
+  // Only offer this private skin when the original local game assets exist.
+  ...(hasMinecraftAssets ? [{ id: 'minecraft', name: 'Minecraft', light: null, dark: minecraft }] : []),
   { id: 'atom-one', name: 'Atom One', light: atomOneLight, dark: oneDarkPro },
   { id: 'solarized-light', name: 'Solarized Light', light: solarizedLight, dark: null },
   { id: 'eclipse', name: 'Eclipse', light: null, dark: eclipse },

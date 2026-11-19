@@ -4870,6 +4870,264 @@
         "$type": "color",
         "$value": "{reference.themes.solarized-light.value-search-match-bg}"
       }
+    },
+    "minecraft": {
+      "surface": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.canvas}"
+      },
+      "surface-on-card": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.canvas}"
+      },
+      "panel-bg": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.canvas}"
+      },
+      "surface-elevated": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.panel}"
+      },
+      "surface-elevated-soft": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.panel}"
+      },
+      "surface-card-ivory": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.panel}"
+      },
+      "settings-theme-card-bg": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.panel}"
+      },
+      "chat-input-bg": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.panel}"
+      },
+      "msg-user-bg": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.panel}"
+      },
+      "surface-chip": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.button}"
+      },
+      "surface-chip-alt": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.button}"
+      },
+      "accent-cta-bg": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.button}"
+      },
+      "accent-cta-bg-pure": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.button}"
+      },
+      "send-btn-bg": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.button}"
+      },
+      "surface-hover": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.hover}"
+      },
+      "surface-hover-soft": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.hover}"
+      },
+      "border-default": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.black}"
+      },
+      "chat-input-border": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.black}"
+      },
+      "settings-theme-card-border": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.black}"
+      },
+      "settings-input-bg": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.black}"
+      },
+      "text-primary": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.white}"
+      },
+      "text-primary-on-dark": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.white}"
+      },
+      "text-primary-emphasis": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.white}"
+      },
+      "text-primary-inv": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.white}"
+      },
+      "text-primary-body-strong": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.white}"
+      },
+      "accent-pure-cta-fg": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.white}"
+      },
+      "settings-section-title": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.white}"
+      },
+      "chat-input-text": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.white}"
+      },
+      "send-btn-icon": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.white}"
+      },
+      "text-secondary": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.secondary}"
+      },
+      "text-secondary-cross": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.secondary}"
+      },
+      "text-secondary-mid": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.secondary}"
+      },
+      "settings-section-desc": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.secondary}"
+      },
+      "settings-section-sublabel": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.secondary}"
+      },
+      "text-tertiary": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.muted}"
+      },
+      "text-tertiary-stone": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.muted}"
+      },
+      "text-tertiary-mid": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.muted}"
+      },
+      "text-placeholder": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.muted}"
+      },
+      "text-disabled": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.disabled}"
+      },
+      "text-disabled-tertiary": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.disabled}"
+      },
+      "settings-input-border": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.line}"
+      },
+      "border-transparent-mixed": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.line}"
+      },
+      "surface-hsl": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.canvas-hsl}"
+      },
+      "surface-hover-hsl": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.hover-hsl}"
+      },
+      "background": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.canvas-hsl}"
+      },
+      "card": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.panel-hsl}"
+      },
+      "popover": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.panel-hsl}"
+      },
+      "foreground": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.white-hsl}"
+      },
+      "card-foreground": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.white-hsl}"
+      },
+      "popover-foreground": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.white-hsl}"
+      },
+      "primary": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.white-hsl}"
+      },
+      "primary-foreground": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.black-hsl}"
+      },
+      "secondary": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.hover-hsl}"
+      },
+      "secondary-foreground": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.white-hsl}"
+      },
+      "muted": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.hover-hsl}"
+      },
+      "muted-foreground": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.muted-hsl}"
+      },
+      "accent": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.hover-hsl}"
+      },
+      "accent-foreground": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.white-hsl}"
+      },
+      "border": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.line-hsl}"
+      },
+      "input": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.black-hsl}"
+      },
+      "text-primary-hsl": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.white-hsl}"
+      },
+      "text-tertiary-hsl": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.muted-hsl}"
+      },
+      "border-default-hsl": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.black-hsl}"
+      },
+      "border-shadcn-hsl": {
+        "$type": "color",
+        "$value": "{reference.themes.minecraft.line-hsl}"
+      }
     }
   }
 }

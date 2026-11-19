@@ -119,7 +119,7 @@ export function SettingsSection({ title, titleId, count, description, action, ca
 
 export function SettingsCard({ className, ...rest }: HTMLAttributes<HTMLDivElement>) {
   const drawer = useContext(DrawerScope);
-  return <div className={cn(drawer ? DRAWER_CARD : PAGE_CARD, className)} {...rest} />;
+  return <div data-appearance-surface="panel" className={cn(drawer ? DRAWER_CARD : PAGE_CARD, className)} {...rest} />;
 }
 
 export interface SettingsRowProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'title' | 'value'> {

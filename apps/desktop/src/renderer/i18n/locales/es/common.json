@@ -2429,7 +2429,8 @@
         "resetFailed": "No se pudo restaurar el diseño del panel.",
         "saved": "Posición del panel guardada. Puedes restaurar el diseño predeterminado en Configuración → Apariencia.",
         "saveFailed": "No se pudieron guardar las posiciones del panel."
-      }
+      },
+      "minecraftTheme": "Minecraft"
     },
     "notifications": {
       "title": "Notificaciones",

@@ -8,7 +8,9 @@ Vite、main、登录、数据库、模型或插件，也不碰正式 Cindy 的�
 构建保留 `?worker` 的真实 Worker 和 `?url` 的原始资源。设置搜索目录使用的
 `import.meta.glob('./**/*.settings-search.ts', { eager: true, import: 'default' })`
 会展开为真实静态导入，参与受影响页面扫描与指纹计算；`--compare` 按各自 Git 版本的
-文件集合展开，不能把当前新增定义混进旧版。其它 glob 形式会明确报错，不静默漏项。
+文件集合展开，不能把当前新增定义混进旧版。也支持 `{ eager: true }` 的模块命名空间形式，
+例如本机可选主题的 CSS；原始样式照常加载、参与指纹，没有文件时返回空集合。
+其它 glob 形式会明确报错，不静默漏项。
 
 ```sh
 pnpm ui:check --changed --theme all                      # 本分支改动涉及的页面，全部场景

@@ -2391,7 +2391,8 @@
         "resetFailed": "Panel-Layout konnte nicht wiederhergestellt werden.",
         "saved": "Panelposition gespeichert. Das Standardlayout kannst du unter Einstellungen → Darstellung wiederherstellen.",
         "saveFailed": "Panel-Positionen konnten nicht gespeichert werden."
-      }
+      },
+      "minecraftTheme": "Minecraft"
     },
     "notifications": {
       "title": "Benachrichtigungen",

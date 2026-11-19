@@ -417,7 +417,7 @@ describe('CINDY · ⑥ family(cindy 默认且置顶 / Classic 文案 / 9 主题�
     expect(getThemeFamilies().find((f) => f.id === 'default')?.name).toBe('Classic');
   });
 
-  it('既有 9 主题 keys 快照不变(不增减 builtin 主题)', () => {
+  it('保留既有主题并显式登记 Minecraft 主题', () => {
     const ids = Object.keys(builtinThemes).sort();
     expect(ids).toEqual(
       [
@@ -429,6 +429,7 @@ describe('CINDY · ⑥ family(cindy 默认且置顶 / Classic 文案 / 9 主题�
         'eclipse',
         'github-dark',
         'material-ocean-hc',
+        'minecraft',
         'monokai-pro',
         'one-dark-pro',
         'solarized-light',

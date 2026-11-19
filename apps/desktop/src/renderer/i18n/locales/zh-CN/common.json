@@ -2361,7 +2361,8 @@
         "resetFailed": "未能恢复面板布局",
         "saved": "面板位置已保存；可在“设置 → 外观”恢复默认布局",
         "saveFailed": "未能保存面板位置"
-      }
+      },
+      "minecraftTheme": "我的世界"
     },
     "notifications": {
       "title": "通知",

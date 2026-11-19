@@ -218,6 +218,24 @@ mountPage({ render: () => <div>{Object.values(modules).map(item => item.title).j
   assert.equal(result.code, 0, result.stdout + result.stderr);
 });
 
+// E2E: private appearance resources are optional eager CSS modules. The prior
+// default-export-only transform rejected the real theme catalog before rendering.
+// Verify both CSS execution and source tracking without substituting the assets.
+test('loads optional eager CSS globs into the real renderer', async () => {
+  const stylesheet = path.join(dir, 'local-skin.css');
+  await writeFile(stylesheet, ':root { --local-skin-check: loaded; }');
+  const file = await entry('css-glob', `
+const present = import.meta.glob('./local-skin.css', { eager: true });
+const absent = import.meta.glob('./missing-skin.css', { eager: true });
+if (Object.keys(present).length !== 1 || Object.keys(absent).length !== 0) throw new Error('Optional CSS membership mismatch');
+await mountPage({ render: () => <div>Local skin loaded</div> });
+if (getComputedStyle(document.documentElement).getPropertyValue('--local-skin-check').trim() !== 'loaded') throw new Error('Original CSS was not applied');`);
+  const scanned = await scanPage(adhocPage(file));
+  assert.ok(scanned.inputs.includes(stylesheet));
+  const result = await run(['--entry', file, '--theme', 'light', '--json']);
+  assert.equal(result.code, 0, result.stderr + result.stdout);
+});
+
 test('one run reports each failure kind on its own variant', async () => {
   const file = await entry(
     'matrix',

@@ -1,4 +1,5 @@
 @import './generated/tokens.css';
+@import './minecraft.css';
 @import 'highlight.js/styles/github.css' layer(hljs-light);
 
 /* biome-ignore lint/suspicious/noUnknownAtRules: Tailwind directives are expanded by PostCSS. */

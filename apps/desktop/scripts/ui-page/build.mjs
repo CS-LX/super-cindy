@@ -208,7 +208,7 @@ function entryContents(definition) {
   };
 }
 
-// Match the eager, default-export Vite globs used by the settings catalog and
+// Match the eager Vite globs used by the settings catalog and
 // asset folders. Keep real modules/assets as imports, so coverage, fingerprints
 // and --compare see them; `?url` assets rely on esbuild's file loader returning
 // the public URL, the same value Vite's default export would provide.
@@ -224,7 +224,7 @@ function eagerGlobModules(overlay) {
         const imports = [];
         const watchDirs = [];
         contents = contents.replace(
-          /import\.meta\.glob(?:<\w+>)?\(\s*(['"])(\.{1,2}\/[^'"]+)\1\s*,\s*\{\s*eager:\s*true\s*,\s*(?:query:\s*(['"])\?url\3\s*,\s*)?import:\s*(['"])default\4\s*,?\s*\}\s*\)/g,
+          /import\.meta\.glob(?:<\w+>)?\(\s*(['"])(\.{1,2}\/[^'"]+)\1\s*,\s*\{\s*eager:\s*true\s*(?:,\s*(?:query:\s*(['"])\?url\3\s*,\s*)?import:\s*(['"])default\4\s*)?,?\s*\}\s*\)/g,
           (_, _quote, pattern, _queryQuote, _importQuote) => {
             const matches = picomatch(pattern.startsWith('./') ? pattern.slice(2) : pattern);
             const files = overlay?.atRef
@@ -237,12 +237,12 @@ function eagerGlobModules(overlay) {
               const binding = `__ui_eager_glob_${imports.length}`;
               // Relative imports pass through the revision overlay's resolver,
               // including modules that no longer exist in the current worktree.
-              imports.push(`import ${binding} from ${JSON.stringify(key)};`);
+              imports.push(`import ${_importQuote ? binding : '* as ' + binding} from ${JSON.stringify(key)};`);
               return `${JSON.stringify(key)}: ${binding}`;
             }).join(',')}}`;
           },
         );
-        if (contents.includes('import.meta.glob')) throw new Error(`Unsupported UI page glob in ${file}; use a literal relative eager default-export glob`);
+        if (contents.includes('import.meta.glob')) throw new Error(`Unsupported UI page glob in ${file}; use a literal relative eager glob`);
         return { contents: imports.join('\n') + '\n' + contents, loader: loaderFor(file), resolveDir: dir, watchDirs };
       });
     },

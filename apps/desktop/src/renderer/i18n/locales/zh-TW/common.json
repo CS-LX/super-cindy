@@ -2361,7 +2361,8 @@
         "resetFailed": "無法恢復面板佈局",
         "saved": "面板位置已儲存；可在「設定 → 外觀」恢復預設佈局",
         "saveFailed": "無法儲存面板位置"
-      }
+      },
+      "minecraftTheme": "我的世界"
     },
     "notifications": {
       "title": "通知",

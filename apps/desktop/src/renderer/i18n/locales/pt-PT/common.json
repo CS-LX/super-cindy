@@ -2429,7 +2429,8 @@
         "resetFailed": "Não foi possível repor a disposição dos painéis.",
         "saved": "Posição do painel guardada. Reponha a disposição predefinida em Definições → Aspeto.",
         "saveFailed": "Não foi possível guardar as posições dos painéis."
-      }
+      },
+      "minecraftTheme": "Minecraft"
     },
     "notifications": {
       "title": "Notificações",

@@ -2361,7 +2361,8 @@
         "resetFailed": "无法复面板配置",
         "saved": "面板位置已存；可于「规制 → 仪容」复预设配置",
         "saveFailed": "面板之位未能存"
-      }
+      },
+      "minecraftTheme": "我的世界"
     },
     "notifications": {
       "title": "告",
