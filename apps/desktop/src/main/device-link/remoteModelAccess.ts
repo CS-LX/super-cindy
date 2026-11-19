@@ -138,7 +138,8 @@ export function createRemoteModelAccessStore(options: { filePath(): string; scop
 }
 
 export const remoteModelAccess = createRemoteModelAccessStore({
-  withMutation: withAvailabilityPolicyMutation,
+  // Resolve the policy at invocation time: its transport imports this store during startup.
+  withMutation: (providerId, work) => withAvailabilityPolicyMutation(providerId, work),
   filePath: () => ownerScopedUserDataPath('remote-model-access.json'),
   scopeKey: () => { captureProviderManagementScope(); return activeOwnerScopeKey(); },
 });

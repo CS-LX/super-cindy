@@ -26,5 +26,7 @@ import { app } from 'electron';
 import { createDeviceLinkSettingsStore } from "./settings-store.js";
 export type * from "./settings-store.js";
 export const { readDeviceLinkSettings, onDeviceLinkSettingChanged, updateDeviceLinkSetting, writeDeviceLinkSetting, readLastKnownDeviceNames, writeLastKnownDeviceNames, setDeviceControlEnabled, rememberLastKnownDeviceName, forgetLastKnownDeviceName, normalizeCachedDeviceName, isPlaceholderDeviceName, __testing } = createDeviceLinkSettingsStore({
-getUserDataDir: () => app.getPath('userData'), withAvailabilityPolicyMutation,
+getUserDataDir: () => app.getPath('userData'),
+// Keep the desktop port lazy across the availability transport/settings import cycle.
+withAvailabilityPolicyMutation: (providerId, work) => withAvailabilityPolicyMutation(providerId, work),
 });
